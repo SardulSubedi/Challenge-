@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+.secrets
+work
+target
+data
+*.pem
+*.key
+*.sbe
+*.jsonl

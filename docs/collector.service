@@ -1,0 +1,19 @@
+[Unit]
+Description=Kalshi orderbook collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=collector
+WorkingDirectory=/opt/kalshi-collector
+EnvironmentFile=/etc/kalshi-collector.env
+ExecStart=/bin/bash /opt/kalshi-collector/scripts/run-collector.sh
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

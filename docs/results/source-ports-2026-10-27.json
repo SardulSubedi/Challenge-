@@ -1,0 +1,422 @@
+{
+  "causal_port_advantage_proven": false,
+  "kind": "source_ports",
+  "passed": true,
+  "report": {
+    "rounds": [
+      {
+        "sample_seconds": 20,
+        "samples": [
+          {
+            "connection": {
+              "handshake_us": 121174,
+              "local_addr": "172.24.60.164:56728",
+              "peer_addr": "3.23.169.232:443",
+              "requested_port": null
+            },
+            "deltas": 15879,
+            "error": null,
+            "first_snapshot_us": 28541,
+            "requested_port": null,
+            "source": 0,
+            "start_delay_ms": 0
+          },
+          {
+            "connection": {
+              "handshake_us": 187165,
+              "local_addr": "172.24.60.164:41001",
+              "peer_addr": "18.189.187.164:443",
+              "requested_port": 41001
+            },
+            "deltas": 16283,
+            "error": null,
+            "first_snapshot_us": 39022,
+            "requested_port": 41001,
+            "source": 1,
+            "start_delay_ms": 500
+          },
+          {
+            "connection": {
+              "handshake_us": 127046,
+              "local_addr": "172.24.60.164:41011",
+              "peer_addr": "3.23.194.45:443",
+              "requested_port": 41011
+            },
+            "deltas": 16174,
+            "error": null,
+            "first_snapshot_us": 31387,
+            "requested_port": 41011,
+            "source": 2,
+            "start_delay_ms": 1000
+          },
+          {
+            "connection": {
+              "handshake_us": 126592,
+              "local_addr": "172.24.60.164:41021",
+              "peer_addr": "3.23.194.45:443",
+              "requested_port": 41021
+            },
+            "deltas": 16046,
+            "error": null,
+            "first_snapshot_us": 33315,
+            "requested_port": 41021,
+            "source": 3,
+            "start_delay_ms": 1500
+          }
+        ],
+        "started_at": "2026-10-27T04:53:14.918148690+00:00",
+        "timing": {
+          "exchange_clock_matches": 0,
+          "matched_updates": 16434,
+          "observations": 64375,
+          "sources": {
+            "0": {
+              "first_arrivals": 1412,
+              "matched_samples": 15713,
+              "max_delay_us": 68164,
+              "median_delay_us": 1381,
+              "p95_delay_us": 28818,
+              "p99_delay_us": 47938
+            },
+            "1": {
+              "first_arrivals": 4070,
+              "matched_samples": 16282,
+              "max_delay_us": 46089,
+              "median_delay_us": 724,
+              "p95_delay_us": 17357,
+              "p99_delay_us": 44597
+            },
+            "2": {
+              "first_arrivals": 9731,
+              "matched_samples": 16173,
+              "max_delay_us": 29673,
+              "median_delay_us": 0,
+              "p95_delay_us": 1951,
+              "p99_delay_us": 12721
+            },
+            "3": {
+              "first_arrivals": 1239,
+              "matched_samples": 15884,
+              "max_delay_us": 40713,
+              "median_delay_us": 1311,
+              "p95_delay_us": 7711,
+              "p99_delay_us": 32154
+            }
+          },
+          "timestamp_fingerprint_matches": 16434,
+          "unmatched_updates": 323
+        }
+      },
+      {
+        "sample_seconds": 20,
+        "samples": [
+          {
+            "connection": {
+              "handshake_us": 114318,
+              "local_addr": "172.24.60.164:38972",
+              "peer_addr": "3.23.169.232:443",
+              "requested_port": null
+            },
+            "deltas": 15954,
+            "error": null,
+            "first_snapshot_us": 36683,
+            "requested_port": null,
+            "source": 0,
+            "start_delay_ms": 1500
+          },
+          {
+            "connection": {
+              "handshake_us": 111149,
+              "local_addr": "172.24.60.164:41001",
+              "peer_addr": "18.189.120.152:443",
+              "requested_port": 41001
+            },
+            "deltas": 15233,
+            "error": null,
+            "first_snapshot_us": 28292,
+            "requested_port": 41001,
+            "source": 1,
+            "start_delay_ms": 0
+          },
+          {
+            "connection": {
+              "handshake_us": 112833,
+              "local_addr": "172.24.60.164:41011",
+              "peer_addr": "18.189.120.152:443",
+              "requested_port": 41011
+            },
+            "deltas": 15916,
+            "error": null,
+            "first_snapshot_us": 33760,
+            "requested_port": 41011,
+            "source": 2,
+            "start_delay_ms": 500
+          },
+          {
+            "connection": {
+              "handshake_us": 107987,
+              "local_addr": "172.24.60.164:41021",
+              "peer_addr": "18.189.120.152:443",
+              "requested_port": 41021
+            },
+            "deltas": 15890,
+            "error": null,
+            "first_snapshot_us": 29745,
+            "requested_port": 41021,
+            "source": 3,
+            "start_delay_ms": 1000
+          }
+        ],
+        "started_at": "2026-10-27T04:53:37.593811543+00:00",
+        "timing": {
+          "exchange_clock_matches": 0,
+          "matched_updates": 16331,
+          "observations": 62989,
+          "sources": {
+            "0": {
+              "first_arrivals": 233,
+              "matched_samples": 15266,
+              "max_delay_us": 154451,
+              "median_delay_us": 3410,
+              "p95_delay_us": 110359,
+              "p99_delay_us": 140097
+            },
+            "1": {
+              "first_arrivals": 12680,
+              "matched_samples": 15074,
+              "max_delay_us": 8628,
+              "median_delay_us": 0,
+              "p95_delay_us": 343,
+              "p99_delay_us": 3595
+            },
+            "2": {
+              "first_arrivals": 285,
+              "matched_samples": 15915,
+              "max_delay_us": 45412,
+              "median_delay_us": 3085,
+              "p95_delay_us": 8358,
+              "p99_delay_us": 32877
+            },
+            "3": {
+              "first_arrivals": 3142,
+              "matched_samples": 15889,
+              "max_delay_us": 37248,
+              "median_delay_us": 1004,
+              "p95_delay_us": 6753,
+              "p99_delay_us": 29322
+            }
+          },
+          "timestamp_fingerprint_matches": 16331,
+          "unmatched_updates": 845
+        }
+      },
+      {
+        "sample_seconds": 20,
+        "samples": [
+          {
+            "connection": {
+              "handshake_us": 99693,
+              "local_addr": "172.24.60.164:42532",
+              "peer_addr": "18.189.120.152:443",
+              "requested_port": null
+            },
+            "deltas": 19537,
+            "error": null,
+            "first_snapshot_us": 29834,
+            "requested_port": null,
+            "source": 0,
+            "start_delay_ms": 1000
+          },
+          {
+            "connection": {
+              "handshake_us": 99133,
+              "local_addr": "172.24.60.164:41001",
+              "peer_addr": "3.148.55.1:443",
+              "requested_port": 41001
+            },
+            "deltas": 19387,
+            "error": null,
+            "first_snapshot_us": 28834,
+            "requested_port": 41001,
+            "source": 1,
+            "start_delay_ms": 1500
+          },
+          {
+            "connection": {
+              "handshake_us": 117156,
+              "local_addr": "172.24.60.164:41011",
+              "peer_addr": "18.189.120.152:443",
+              "requested_port": 41011
+            },
+            "deltas": 19318,
+            "error": null,
+            "first_snapshot_us": 31917,
+            "requested_port": 41011,
+            "source": 2,
+            "start_delay_ms": 0
+          },
+          {
+            "connection": {
+              "handshake_us": 96132,
+              "local_addr": "172.24.60.164:41021",
+              "peer_addr": "3.134.35.182:443",
+              "requested_port": 41021
+            },
+            "deltas": 19541,
+            "error": null,
+            "first_snapshot_us": 31693,
+            "requested_port": 41021,
+            "source": 3,
+            "start_delay_ms": 500
+          }
+        ],
+        "started_at": "2026-10-27T04:53:59.726748784+00:00",
+        "timing": {
+          "exchange_clock_matches": 0,
+          "matched_updates": 19803,
+          "observations": 77778,
+          "sources": {
+            "0": {
+              "first_arrivals": 13639,
+              "matched_samples": 19536,
+              "max_delay_us": 13670,
+              "median_delay_us": 0,
+              "p95_delay_us": 2256,
+              "p99_delay_us": 4782
+            },
+            "1": {
+              "first_arrivals": 587,
+              "matched_samples": 19101,
+              "max_delay_us": 28035,
+              "median_delay_us": 2082,
+              "p95_delay_us": 6619,
+              "p99_delay_us": 16717
+            },
+            "2": {
+              "first_arrivals": 197,
+              "matched_samples": 19060,
+              "max_delay_us": 29634,
+              "median_delay_us": 2846,
+              "p95_delay_us": 9670,
+              "p99_delay_us": 23571
+            },
+            "3": {
+              "first_arrivals": 5395,
+              "matched_samples": 19540,
+              "max_delay_us": 17195,
+              "median_delay_us": 927,
+              "p95_delay_us": 4651,
+              "p99_delay_us": 8739
+            }
+          },
+          "timestamp_fingerprint_matches": 19803,
+          "unmatched_updates": 541
+        }
+      },
+      {
+        "sample_seconds": 20,
+        "samples": [
+          {
+            "connection": {
+              "handshake_us": 110349,
+              "local_addr": "172.24.60.164:39612",
+              "peer_addr": "3.128.136.165:443",
+              "requested_port": null
+            },
+            "deltas": 21941,
+            "error": null,
+            "first_snapshot_us": 31854,
+            "requested_port": null,
+            "source": 0,
+            "start_delay_ms": 500
+          },
+          {
+            "connection": {
+              "handshake_us": 100613,
+              "local_addr": "172.24.60.164:41001",
+              "peer_addr": "3.140.82.149:443",
+              "requested_port": 41001
+            },
+            "deltas": 21571,
+            "error": null,
+            "first_snapshot_us": 54033,
+            "requested_port": 41001,
+            "source": 1,
+            "start_delay_ms": 1000
+          },
+          {
+            "connection": {
+              "handshake_us": 114554,
+              "local_addr": "172.24.60.164:41011",
+              "peer_addr": "18.119.59.145:443",
+              "requested_port": 41011
+            },
+            "deltas": 21516,
+            "error": null,
+            "first_snapshot_us": 32719,
+            "requested_port": 41011,
+            "source": 2,
+            "start_delay_ms": 1500
+          },
+          {
+            "connection": {
+              "handshake_us": 123809,
+              "local_addr": "172.24.60.164:41021",
+              "peer_addr": "18.221.6.181:443",
+              "requested_port": 41021
+            },
+            "deltas": 21549,
+            "error": null,
+            "first_snapshot_us": 31655,
+            "requested_port": 41021,
+            "source": 3,
+            "start_delay_ms": 0
+          }
+        ],
+        "started_at": "2026-10-27T04:54:22.434048130+00:00",
+        "timing": {
+          "exchange_clock_matches": 0,
+          "matched_updates": 22170,
+          "observations": 86568,
+          "sources": {
+            "0": {
+              "first_arrivals": 2869,
+              "matched_samples": 21939,
+              "max_delay_us": 572981,
+              "median_delay_us": 1087,
+              "p95_delay_us": 10701,
+              "p99_delay_us": 19726
+            },
+            "1": {
+              "first_arrivals": 7697,
+              "matched_samples": 21570,
+              "max_delay_us": 63741,
+              "median_delay_us": 115,
+              "p95_delay_us": 5246,
+              "p99_delay_us": 18097
+            },
+            "2": {
+              "first_arrivals": 3978,
+              "matched_samples": 21274,
+              "max_delay_us": 572897,
+              "median_delay_us": 698,
+              "p95_delay_us": 4762,
+              "p99_delay_us": 10330
+            },
+            "3": {
+              "first_arrivals": 7666,
+              "matched_samples": 21338,
+              "max_delay_us": 572572,
+              "median_delay_us": 78,
+              "p95_delay_us": 59877,
+              "p99_delay_us": 77171
+            }
+          },
+          "timestamp_fingerprint_matches": 22170,
+          "unmatched_updates": 447
+        }
+      }
+    ],
+    "symbol": "KXBTC15M-26OCT270100-00"
+  }
+}
