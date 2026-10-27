@@ -79,7 +79,28 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --all-targets --locked
 ```
 
-The 30 automated tests cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows.
+The 39 automated tests cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify silent-primary failover through the complete pipeline, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
+
+## Independent live checks and optional experiments
+
+`feed-lab` uses the same credentials as the collector and never places orders. Reports and archive names must be new. Substitute current live tickers:
+
+```sh
+# Compare every production-engine update with an independent signed-delta
+# reconstruction, compare fresh exchange snapshots, then replay actual SBE output.
+cargo run --release --bin feed-lab -- verify --symbols LIVE_BTC,LIVE_ETH \
+  --seconds 90 --snapshot-every 5 --archive data/verified-01.sbe \
+  --report data/verified-01.json
+# Rotate each source through every start position, recording actual endpoints.
+cargo run --release --bin feed-lab -- ports --symbol LIVE_BTC \
+  --ports 41001,41011,41021 --rounds 4 --seconds 20 --report data/ports-01.json
+# Start BEFORE an actual maintenance closure, allowing enough time for reopening.
+cargo run --release --bin feed-lab -- maintenance --symbol LIVE_BTC \
+  --wait-seconds 10800 --poll-ms 1000 --delays-ms 0,2000,5000 \
+  --seconds 30 --report data/reopen-01.json
+```
+
+The verifier exits unsuccessfully on engine disagreement, sequence loss, reconstruction failure, snapshot mismatch, insufficient activity, or SBE replay disagreement. The maintenance experiment requires an explicit closed-to-open exchange-status transition; starting while already open or seeing HTTP errors cannot fabricate a reopening. A wait timeout produces an explicitly inconclusive report. Source-port experiments use at most eight paced connections, stop additional rounds after a failed sample, and report relative arrival times without asserting a causal port advantage. NAT can rewrite the bound local port. See [results and experiment limits](docs/LATENCY.md).
 
 `Dockerfile` provides a non-root Linux image. Mount the key read-only, pass its container path through `KALSHI_PRIVATE_KEY_PATH`, and configure the matching key ID. `docs/collector.service` is an example systemd supervisor; adjust its install paths and user before deploying. No orders or account mutations are performed by the collector.
 

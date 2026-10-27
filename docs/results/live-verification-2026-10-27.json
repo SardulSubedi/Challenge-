@@ -1,0 +1,23 @@
+{
+  "kind": "live_verification",
+  "minimum_deltas": 100,
+  "passed": true,
+  "report": {
+    "archive_roundtrip": true,
+    "connection": {
+      "handshake_us": 153461,
+      "local_addr": "172.24.60.164:55838",
+      "peer_addr": "13.59.201.97:443",
+      "requested_port": null
+    },
+    "deltas": 89810,
+    "duration_ms": 90001,
+    "engine_updates_checked": 89810,
+    "initial_snapshots": 2,
+    "mismatches": [],
+    "snapshot_checks": 34,
+    "snapshot_mismatches": 0,
+    "started_at": "2026-10-27T04:52:06.036308094+00:00",
+    "symbols": 2
+  }
+}

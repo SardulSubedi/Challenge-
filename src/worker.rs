@@ -8,11 +8,10 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use futures_util::{SinkExt, StreamExt};
 use tokio::{
-    net::TcpStream,
     sync::{Mutex, mpsc, watch},
     time::{interval, timeout},
 };
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
+use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -20,6 +19,7 @@ use crate::{
     engine::Source,
     exchange::{Change, Command, Exchange, MarketData, Payload, Sequences},
     monitor::Activity,
+    transport::{self, Socket},
 };
 
 pub enum Event {
@@ -60,7 +60,7 @@ impl ConnectGate {
         let mut blocked = self.blocked_until.lock().unwrap();
         *blocked = (*blocked).max(tokio::time::Instant::now() + delay);
     }
-    async fn wait(&self, cancel: &CancellationToken) -> Result<()> {
+    pub(crate) async fn wait(&self, cancel: &CancellationToken) -> Result<()> {
         let mut next = tokio::select! { _ = cancel.cancelled() => bail!("shutdown"), next = self.next.lock() => next };
         loop {
             let slot = (*next).max(*self.blocked_until.lock().unwrap());
@@ -90,7 +90,6 @@ struct Pending {
     command: Command,
     sent: Instant,
 }
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 impl Worker {
     pub async fn run(mut self) -> Result<()> {
@@ -157,15 +156,17 @@ impl Worker {
 
     async fn connect_and_run(&mut self) -> Result<()> {
         let request = self.exchange.request()?;
-        // TCP_NODELAY is set by connect_async's implementation when disable_nagle is requested.
         let cancel = self.cancel.clone();
-        let (mut socket, _) = tokio::select! {
+        let (mut socket, connection) = tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
-            result = timeout(Duration::from_secs(20), tokio_tungstenite::connect_async_with_config(request, None, true)) => result??,
+            result = timeout(Duration::from_secs(20), transport::connect(request, None)) => result??,
         };
         tracing::info!(
             source = self.source,
             symbols = self.desired.borrow().len(),
+            local_addr = %connection.local_addr,
+            peer_addr = %connection.peer_addr,
+            handshake_us = connection.handshake_us,
             "socket connected"
         );
         let result = self.session(&mut socket).await;

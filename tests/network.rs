@@ -46,6 +46,8 @@ struct MockState {
     closed: AtomicUsize,
     injected_gap: AtomicBool,
     inject_gap: bool,
+    corrupt_checkpoint: AtomicBool,
+    stall_first: AtomicBool,
     started: Instant,
 }
 
@@ -58,6 +60,8 @@ impl MockState {
             closed: AtomicUsize::new(0),
             injected_gap: AtomicBool::new(false),
             inject_gap,
+            corrupt_checkpoint: AtomicBool::new(false),
+            stall_first: AtomicBool::new(false),
             started: Instant::now(),
         })
     }
@@ -93,9 +97,14 @@ async fn serve_socket(mut socket: WebSocket, state: Arc<MockState>) {
                                 let symbol = symbol.as_str().unwrap();
                                 if action == "delete_markets" { clocks.remove(symbol); continue; }
                                 let clock = state.started.elapsed().as_millis() as u64 / 50 + 1;
+                                if action == "get_snapshot" && let Some(&old) = clocks.get(symbol) && clock > old {
+                                    seq += 1;
+                                    socket.send(Message::Text(json!({"type":"orderbook_delta","sid":1,"seq":seq,"msg":{"market_ticker":symbol,"clock":clock,"price_dollars":"0.4000","delta_fp":(clock-old).to_string(),"side":"yes","ts_ms":chrono::Utc::now().timestamp_millis()}}).to_string().into())).await?;
+                                }
                                 clocks.insert(symbol.to_owned(), clock);
                                 seq += 1;
-                                socket.send(Message::Text(json!({"type":"orderbook_snapshot","sid":1,"seq":seq,"sending_ts_ms":chrono::Utc::now().timestamp_millis(),"msg":{"market_ticker":symbol,"clock":clock,"yes_dollars_fp":[["0.4000",clock.to_string()]],"no_dollars_fp":[["0.5000","3.00"]]}}).to_string().into())).await?;
+                                let quantity = clock + u64::from(action == "get_snapshot" && state.corrupt_checkpoint.load(Ordering::SeqCst));
+                                socket.send(Message::Text(json!({"type":"orderbook_snapshot","sid":1,"seq":seq,"sending_ts_ms":chrono::Utc::now().timestamp_millis(),"msg":{"market_ticker":symbol,"clock":clock,"yes_dollars_fp":[["0.4000",quantity.to_string()]],"no_dollars_fp":[["0.5000","3.00"]]}}).to_string().into())).await?;
                             }
                         }
                         Some(Ok(Message::Ping(payload))) => socket.send(Message::Pong(payload)).await?,
@@ -108,6 +117,7 @@ async fn serve_socket(mut socket: WebSocket, state: Arc<MockState>) {
                 _ = tick.tick() => {
                     for (symbol, old) in &mut clocks {
                         let clock = state.started.elapsed().as_millis() as u64 / 50 + 1;
+                        if connection == 0 && clock >= 20 && state.stall_first.load(Ordering::SeqCst) { continue; }
                         if clock <= *old { continue; }
                         seq += 1;
                         if state.inject_gap && connection == 0 && clock >= 4 && !state.injected_gap.swap(true, Ordering::SeqCst) { seq += 1; }
@@ -413,5 +423,125 @@ async fn sigint_closes_sockets_and_stdout_matches_sbe_archive() {
     assert!(!bytes.is_empty());
     assert_eq!(std::fs::read(raw).unwrap(), bytes);
     assert!(state.closed.load(Ordering::SeqCst) >= 2);
+    server.abort();
+}
+
+#[tokio::test]
+async fn independent_live_verifier_matches_checkpoints_and_sbe_replay() {
+    let state = MockState::new(false);
+    let (address, server) = start_server(state.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let archive = dir.path().join("verified.sbe");
+    let report = engineering_challenge::lab::verify(
+        exchange(state, address),
+        engineering_challenge::lab::VerifyOptions {
+            symbols: vec!["A".into()],
+            duration: Duration::from_millis(800),
+            snapshot_every: Duration::from_millis(100),
+        },
+        Some(&archive),
+    )
+    .await
+    .unwrap();
+    assert!(report.deltas > 2 && report.snapshot_checks >= 2);
+    assert_eq!(report.snapshot_mismatches, 0);
+    assert!(report.archive_roundtrip);
+    server.abort();
+}
+
+#[tokio::test]
+async fn independent_verifier_reports_incorrect_exchange_checkpoint() {
+    let state = MockState::new(false);
+    state.corrupt_checkpoint.store(true, Ordering::SeqCst);
+    let (address, server) = start_server(state.clone()).await;
+    let report = engineering_challenge::lab::verify(
+        exchange(state, address),
+        engineering_challenge::lab::VerifyOptions {
+            symbols: vec!["A".into()],
+            duration: Duration::from_millis(500),
+            snapshot_every: Duration::from_millis(100),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(report.snapshot_mismatches > 0);
+    assert!(report.mismatches[0].different_levels > 0);
+    server.abort();
+}
+
+#[tokio::test]
+async fn connection_experiment_matches_events_and_records_real_endpoints() {
+    let state = MockState::new(false);
+    let (address, server) = start_server(state.clone()).await;
+    let report = engineering_challenge::experiments::sample_wave(
+        exchange(state, address),
+        "A".into(),
+        vec![(0, None, Duration::ZERO), (1, None, Duration::ZERO)],
+        Duration::from_millis(800),
+    )
+    .await
+    .unwrap();
+    assert_eq!(report.samples.len(), 2);
+    assert!(
+        report
+            .samples
+            .iter()
+            .all(|s| s.error.is_none() && s.first_snapshot_us.is_some())
+    );
+    assert!(report.timing.matched_updates > 0);
+    assert_ne!(
+        report.samples[0].connection.as_ref().unwrap().local_addr,
+        report.samples[1].connection.as_ref().unwrap().local_addr
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn silent_primary_with_healthy_heartbeats_fails_over_through_complete_pipeline() {
+    let state = MockState::new(false);
+    state.stall_first.store(true, Ordering::SeqCst);
+    let (address, server) = start_server(state.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("silent-primary.sbe");
+    let mut config = config();
+    config.no_stdout = true;
+    config.output = Some(path.clone());
+    let cancel = CancellationToken::new();
+    let task = tokio::spawn(runtime::run(
+        config,
+        exchange(state.clone(), address),
+        cancel.clone(),
+    ));
+    sleep(Duration::from_millis(4200)).await;
+    cancel.cancel();
+    timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let mut reader = AlignedSbeReader::<OrderbookSchema>::open(path).unwrap();
+    let mut last_quantity = 0;
+    let mut snapshots = 0;
+    while let Some(message) = reader.read_msg().unwrap() {
+        match message {
+            AnyMessage::Snapshot(decoded) => {
+                let s = SnapshotDomain::try_from_decoder(decoded).unwrap();
+                last_quantity = s.bids[0].quantity;
+                snapshots += 1;
+            }
+            AnyMessage::PriceLevelUpdate(decoded) => {
+                last_quantity = PriceLevelUpdateDomain::try_from_decoder(decoded)
+                    .unwrap()
+                    .quantity;
+            }
+            _ => panic!("unexpected SBE message"),
+        }
+    }
+    assert!(snapshots >= 2);
+    assert!(
+        last_quantity >= 70_000_000,
+        "backup should advance the output after silent primary stalls at 20 contracts: {last_quantity}"
+    );
     server.abort();
 }

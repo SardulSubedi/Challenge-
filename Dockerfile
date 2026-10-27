@@ -11,6 +11,7 @@ RUN useradd --create-home collector
 COPY --from=build /app/target/release/collector /usr/local/bin/collector
 COPY --from=build /app/target/release/inspect-sbe /usr/local/bin/inspect-sbe
 COPY --from=build /app/target/release/latency-report /usr/local/bin/latency-report
+COPY --from=build /app/target/release/feed-lab /usr/local/bin/feed-lab
 USER collector
 WORKDIR /home/collector
 STOPSIGNAL SIGINT

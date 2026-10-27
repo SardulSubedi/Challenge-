@@ -3,11 +3,14 @@ pub mod book;
 pub mod config;
 pub mod engine;
 pub mod exchange;
+pub mod experiments;
+pub mod lab;
 pub mod latency;
 pub mod monitor;
 pub mod output;
 pub mod runtime;
 pub mod sharding;
+pub mod transport;
 pub mod util;
 pub mod worker;
 

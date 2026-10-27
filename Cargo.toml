@@ -17,6 +17,10 @@ path = "src/bin/latency_report.rs"
 name = "inspect-sbe"
 path = "src/bin/inspect_sbe.rs"
 
+[[bin]]
+name = "feed-lab"
+path = "src/bin/feed_lab.rs"
+
 [dependencies]
 anyhow = "1"
 chrono = "0.4"

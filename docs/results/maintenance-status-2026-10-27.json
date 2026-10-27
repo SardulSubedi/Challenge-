@@ -1,0 +1,45 @@
+{
+  "kind": "maintenance",
+  "measurement_started": false,
+  "outcome": "inconclusive_no_observed_reopen",
+  "status": {
+    "errors": 0,
+    "observations": 5,
+    "observed_closed_at": null,
+    "observed_reopen_at": null,
+    "poll_ms": 1000,
+    "recent_status": [
+      {
+        "at": "2026-10-27T04:46:03.673436101+00:00",
+        "error": null,
+        "exchange_active": true,
+        "trading_active": true
+      },
+      {
+        "at": "2026-10-27T04:46:04.709077649+00:00",
+        "error": null,
+        "exchange_active": true,
+        "trading_active": true
+      },
+      {
+        "at": "2026-10-27T04:46:05.762844990+00:00",
+        "error": null,
+        "exchange_active": true,
+        "trading_active": true
+      },
+      {
+        "at": "2026-10-27T04:46:06.798479203+00:00",
+        "error": null,
+        "exchange_active": true,
+        "trading_active": true
+      },
+      {
+        "at": "2026-10-27T04:46:07.835618835+00:00",
+        "error": null,
+        "exchange_active": true,
+        "trading_active": true
+      }
+    ],
+    "started_at": "2026-10-27T04:46:03.529484197+00:00"
+  }
+}
