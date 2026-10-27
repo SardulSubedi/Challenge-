@@ -97,11 +97,14 @@ pub async fn run(
     let mut flush = interval(Duration::from_secs(1));
     let mut health = interval(Duration::from_millis(250));
     health.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut metrics = interval(Duration::from_secs(30));
+    let mut metrics = interval(Duration::from_secs(5));
     for interval in [&mut snapshots, &mut flush, &mut metrics] {
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     }
     let mut max_queue_delay_us = 0i64;
+    let mut metrics_at = Instant::now();
+    let mut last_deltas = 0u64;
+    let mut coverage_announced = false;
 
     loop {
         if needs_reconcile && !shutdown {
@@ -116,6 +119,7 @@ pub async fn run(
                 needs_reconcile = false;
                 continue;
             }
+            let initial_ramp = subscriptions.is_empty();
             for (shard, symbols) in shards.assignments.iter().enumerate() {
                 for replica in 0..config.replicas {
                     let source = shard * config.replicas + replica;
@@ -134,18 +138,42 @@ pub async fn run(
                             cancel: cancel.clone(),
                             gate: gate.clone(),
                         };
-                        workers.spawn(worker.run());
+                        // Cover every shard once before spending startup slots on
+                        // replicas. The same global gate still limits all starts.
+                        let delay = if initial_ramp {
+                            Duration::from_millis(
+                                config
+                                    .connect_interval_ms
+                                    .saturating_mul(shards.assignments.len() as u64)
+                                    .saturating_mul(replica as u64),
+                            )
+                        } else {
+                            Duration::ZERO
+                        };
+                        workers.spawn(worker.run_after(delay));
                     } else if *subscriptions[source].borrow() != *symbols {
                         subscriptions[source].send_replace(symbols.clone());
                     }
                 }
             }
             tracing::info!(
+                first_copy_ramp_secs = shards.assignments.len().saturating_sub(1) as u64
+                    * config.connect_interval_ms
+                    / 1000,
                 markets = universe.len(),
                 shards = shards.assignments.len(),
                 sockets = subscriptions.len(),
                 "subscription universe reconciled"
             );
+            if initial_ramp {
+                tracing::info!(
+                    connection_ramp_secs = subscriptions.len().saturating_sub(1) as u64
+                        * config.connect_interval_ms
+                        / 1000,
+                    "connections start at a paced rate; market coverage grows during startup"
+                );
+            }
+            coverage_announced = false;
             needs_reconcile = false;
         }
         if shutdown && workers.is_empty() && events_rx.is_empty() {
@@ -168,7 +196,10 @@ pub async fn run(
                 }
             }
             changed = universe_rx.changed(), if !shutdown => {
-                if changed.is_ok() { universe = universe_rx.borrow_and_update().clone(); needs_reconcile = true; }
+                if changed.is_ok() {
+                    let updated = universe_rx.borrow_and_update().clone();
+                    if updated != universe { universe = updated; needs_reconcile = true; }
+                }
                 else if !cancel.is_cancelled() { fatal = Some(anyhow::anyhow!("market discovery task stopped")); cancel.cancel(); shutdown = true; }
             }
             Some(event) = events_rx.recv() => {
@@ -198,10 +229,22 @@ pub async fn run(
                 if events_rx.is_empty() { to_write.extend(engine.check_lagging(Utc::now(), Instant::now()).into_iter().map(Output::Record)); }
             }
             _ = metrics.tick(), if !shutdown => {
-                tracing::info!(markets = engine.market_count(), ready = engine.ready_markets(), deltas = engine.deltas_emitted,
+                let now = Instant::now();
+                let elapsed = now.duration_since(metrics_at).as_secs_f64();
+                let updates_per_sec = (engine.deltas_emitted - last_deltas) as f64 / elapsed.max(0.001);
+                let ready = engine.ready_markets();
+                let coverage_pct = ready as f64 * 100.0 / engine.market_count().max(1) as f64;
+                tracing::info!(markets = engine.market_count(), ready, coverage_pct = format_args!("{coverage_pct:.1}"),
+                    updates_per_sec = format_args!("{updates_per_sec:.0}"), deltas = engine.deltas_emitted,
                     snapshots = engine.snapshots_emitted, failovers = engine.failovers, max_queue_delay_us,
                     queue_depth = events_rx.len(), "collector health");
                 max_queue_delay_us = 0;
+                metrics_at = now;
+                last_deltas = engine.deltas_emitted;
+                if !coverage_announced && ready == engine.market_count() && ready > 0 {
+                    tracing::info!(markets = ready, "all current markets have initialized books");
+                    coverage_announced = true;
+                }
             }
         }
         if !writer_finished {

@@ -33,6 +33,8 @@ When using WSL, private-key paths must use Linux syntax, for example `/mnt/c/Use
 
 - Paginate `/markets?status=open&mve_filter=exclude`; defensively filter MVE metadata too. Reconcile the complete universe every 60 seconds. Failed scans retain the previous universe rather than unsubscribing from a partial response.
 - Keep existing symbol assignments stable and cap each shard at 2,000 markets by default. Each shard has two independent WebSockets and private books. New markets fill available slots; closed markets are removed. Connection starts are paced at two per second, with a default 160-socket budget and a shared cooldown after HTTP 429. Exceeding the budget fails explicitly with configuration guidance; no markets are silently skipped.
+- At startup, open one connection per shard before its backups, so market coverage grows faster at the same safe connection rate. This prioritizes broad initial coverage; each shard initially has one copy until its backup starts. Discovery uses gzip responses and slows future REST page requests after throttling. A complete paginated discovery scan still precedes subscriptions.
+- Print coverage percentage, unique output updates per second, cumulative record counts, source switches, and engine-queue delay every five seconds. `ready` counts markets with an initialized selected book, not two verified replicas. Startup logs estimate the paced first-copy and total connection ramps; network handshakes and snapshots can take longer. Duplicate backup updates maintain private books and intentionally do not double the output count.
 - Validate per-subscription `sid`/`seq` across all symbols and sequenced command acknowledgements. A gap, regression, malformed market message, lost ACK, heartbeat failure, or disconnect invalidates that connection's books and triggers a jittered reconnect with new snapshots.
 - Apply deltas as signed changes internally and output **absolute** quantities. Output zero when a level is deleted. Financial prices and quantities use exact integer millionths, without floating-point rounding. YES bids become bids; NO bids become YES asks at `1 - NO price`.
 - Emit an initial snapshot, a snapshot every minute for each available book, and a snapshot at every source switch or same-source reset. Only one replica emits deltas per symbol. When the feed supplies exchange clocks, a failover candidate must have reached the last emitted clock position; otherwise output pauses until it catches up. Clockless feeds reset with a snapshot selected from an independently maintained replica; cross-connection catch-up cannot be proven in that case.
@@ -75,13 +77,15 @@ The latency report prefers `(market, exchange clock, ordinal, side, price, delta
 
 ## Tests and deployment
 
+For measured startup costs, the subscription-processing optimization, full-universe throughput, and remaining checkpoint pauses, see [performance validation](docs/PERFORMANCE.md).
+
 ```sh
 cargo fmt --all -- --check
 cargo clippy --all-targets --locked -- -D warnings
 cargo test --all-targets --locked
 ```
 
-The 39 automated tests cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify silent-primary failover through the complete pipeline, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
+The 43 automated tests cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify silent-primary failover through the complete pipeline, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
 
 ## Independent live checks and optional experiments
 

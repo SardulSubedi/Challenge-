@@ -346,6 +346,174 @@ async fn discovery_paginates_and_excludes_mves_even_if_server_returns_them() {
     server.abort();
 }
 
+#[tokio::test]
+async fn discovery_decodes_compressed_exchange_responses() {
+    use base64::Engine as _;
+    let compressed = base64::engine::general_purpose::STANDARD.decode("H4sIAAAAAAACA6tWyk0syk4tKVayiq5WKslMzk4tUrJSclTSUSouSSwpBYorJSaXZJalKtXG6igllxYV54MUKNUCALSpHB86AAAA").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            Router::new().route(
+                "/markets",
+                get(move |headers: axum::http::HeaderMap| {
+                    let body = compressed.clone();
+                    async move {
+                        assert!(
+                            headers["accept-encoding"]
+                                .to_str()
+                                .unwrap()
+                                .contains("gzip")
+                        );
+                        (
+                            [
+                                ("content-encoding", "gzip"),
+                                ("content-type", "application/json"),
+                            ],
+                            body,
+                        )
+                    }
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    });
+    let adapter = Kalshi::new(format!("http://{address}"), "ws://localhost".into(), None).unwrap();
+    assert_eq!(adapter.discover().await.unwrap(), ["A".into()].into());
+    server.abort();
+}
+
+#[tokio::test]
+async fn explicit_repair_reconciles_after_ack_and_streaming_resumes() {
+    let state = MockState::new(false);
+    let (address, server) = start_server(state.clone()).await;
+    let cancel = CancellationToken::new();
+    let (_desired_tx, desired) = watch::channel(["A".into()].into());
+    let (repair_tx, repairs) = mpsc::unbounded_channel();
+    let (events, mut rx) = mpsc::channel(128);
+    let task = tokio::spawn(
+        Worker {
+            source: 0,
+            config: Arc::new(config()),
+            exchange: exchange(state.clone(), address),
+            desired,
+            repairs,
+            events,
+            cancel: cancel.clone(),
+            gate: Arc::new(ConnectGate::default()),
+        }
+        .run(),
+    );
+    timeout(Duration::from_secs(5), async {
+        let mut snapshots = 0;
+        loop {
+            if let Event::Data { data, .. } = rx.recv().await.unwrap() {
+                match data.change {
+                    engineering_challenge::exchange::Change::Snapshot(_) => {
+                        snapshots += 1;
+                        if snapshots == 1 {
+                            repair_tx.send("A".into()).unwrap();
+                        }
+                    }
+                    engineering_challenge::exchange::Change::Delta { .. } if snapshots >= 2 => {
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+    cancel.cancel();
+    timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let commands = state.commands.lock().unwrap();
+    assert_eq!(commands.len(), 3);
+    assert_eq!(commands[1]["params"]["action"], "delete_markets");
+    assert_eq!(commands[2]["params"]["action"], "add_markets");
+    server.abort();
+}
+
+#[tokio::test]
+async fn discovery_recovers_from_throttling_without_losing_the_page() {
+    async fn throttled(
+        State(count): State<Arc<AtomicUsize>>,
+    ) -> (axum::http::StatusCode, Json<Value>) {
+        if count.fetch_add(1, Ordering::SeqCst) == 0 {
+            (
+                axum::http::StatusCode::TOO_MANY_REQUESTS,
+                Json(json!({"error":"too many requests"})),
+            )
+        } else {
+            (
+                axum::http::StatusCode::OK,
+                Json(json!({"markets":[{"ticker":"A","status":"active"}],"cursor":""})),
+            )
+        }
+    }
+    let count = Arc::new(AtomicUsize::new(0));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = Router::new()
+        .route("/markets", get(throttled))
+        .with_state(count.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let adapter = Kalshi::new(format!("http://{address}"), "ws://localhost".into(), None).unwrap();
+    assert_eq!(adapter.discover().await.unwrap(), ["A".into()].into());
+    assert_eq!(count.load(Ordering::SeqCst), 2);
+    server.abort();
+}
+
+#[tokio::test]
+async fn startup_covers_each_shard_before_opening_backups() {
+    let state = MockState::new(false);
+    *state.universe.lock().unwrap() = ["A".into(), "B".into(), "C".into()].into();
+    let (address, server) = start_server(state.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = config();
+    config.connect_interval_ms = 80;
+    config.no_stdout = true;
+    config.output = Some(dir.path().join("startup.sbe"));
+    let cancel = CancellationToken::new();
+    let task = tokio::spawn(runtime::run(
+        config,
+        exchange(state.clone(), address),
+        cancel.clone(),
+    ));
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if state.commands.lock().unwrap().len() >= 6 {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    cancel.cancel();
+    timeout(Duration::from_secs(15), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let commands = state.commands.lock().unwrap();
+    let first: BTreeSet<_> = commands
+        .iter()
+        .take(3)
+        .map(|c| c["params"]["market_tickers"][0].as_str().unwrap())
+        .collect();
+    assert_eq!(first, ["A", "B", "C"].into());
+    server.abort();
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn sigint_closes_sockets_and_stdout_matches_sbe_archive() {

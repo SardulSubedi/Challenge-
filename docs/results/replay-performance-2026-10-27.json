@@ -1,0 +1,42 @@
+{
+  "markets": 2000,
+  "deltas": 20000,
+  "results": [
+    {
+      "binary": "collector-before-performance",
+      "round": 1,
+      "seconds": 13.5801,
+      "snapshots": 2000,
+      "deltas": 20000,
+      "final_books_correct": true,
+      "updates_per_second": 1473
+    },
+    {
+      "binary": "collector",
+      "round": 1,
+      "seconds": 0.4475,
+      "snapshots": 2000,
+      "deltas": 20000,
+      "final_books_correct": true,
+      "updates_per_second": 44690
+    },
+    {
+      "binary": "collector",
+      "round": 2,
+      "seconds": 0.4397,
+      "snapshots": 2000,
+      "deltas": 20000,
+      "final_books_correct": true,
+      "updates_per_second": 45486
+    },
+    {
+      "binary": "collector-before-performance",
+      "round": 2,
+      "seconds": 12.9619,
+      "snapshots": 2000,
+      "deltas": 20000,
+      "final_books_correct": true,
+      "updates_per_second": 1543
+    }
+  ]
+}

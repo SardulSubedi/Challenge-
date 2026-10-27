@@ -1,6 +1,9 @@
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -70,6 +73,7 @@ pub struct Kalshi {
     pub credentials: Option<Arc<Credentials>>,
     client: reqwest::Client,
     symbols: Vec<String>,
+    discovery_delay_ms: AtomicU64,
 }
 
 impl Kalshi {
@@ -83,6 +87,7 @@ impl Kalshi {
             ws_url,
             credentials,
             symbols: Vec::new(),
+            discovery_delay_ms: AtomicU64::new(120),
             client: reqwest::Client::builder()
                 .timeout(Duration::from_secs(20))
                 .user_agent("voluntas-challenge-collector/0.1")
@@ -121,6 +126,7 @@ impl Exchange for Kalshi {
         let mut cursors = HashSet::new();
         let tickers = self.symbols.join(",");
         let mut pages = 0usize;
+        let started = std::time::Instant::now();
         loop {
             let mut response = None;
             for retry in 0..5u32 {
@@ -143,6 +149,13 @@ impl Exchange for Kalshi {
                         break;
                     }
                     Ok(r) if r.status().as_u16() == 429 || r.status().is_server_error() => {
+                        if r.status().as_u16() == 429 {
+                            // Compression can make pages arrive fast enough to hit
+                            // public REST quotas. Retain slower pacing across scans.
+                            let delay = self.discovery_delay_ms.load(Ordering::Relaxed);
+                            self.discovery_delay_ms
+                                .fetch_max((delay * 3 / 2).min(2000), Ordering::Relaxed);
+                        }
                         let delay = r
                             .headers()
                             .get("retry-after")
@@ -150,7 +163,7 @@ impl Exchange for Kalshi {
                             .and_then(|v| v.parse::<u64>().ok())
                             .unwrap_or(1 << retry)
                             .min(60);
-                        tracing::warn!(status = %r.status(), delay, "discovery throttled; retrying page");
+                        tracing::warn!(status = %r.status(), delay, page_delay_ms = self.discovery_delay_ms.load(Ordering::Relaxed), "discovery throttled; retrying page");
                         tokio::time::sleep(Duration::from_secs(delay)).await;
                     }
                     Ok(r) => bail!("market discovery returned HTTP {}", r.status()),
@@ -185,6 +198,7 @@ impl Exchange for Kalshi {
                 tracing::info!(
                     pages,
                     markets = symbols.len(),
+                    elapsed_secs = started.elapsed().as_secs(),
                     "market discovery in progress"
                 );
             }
@@ -194,8 +208,17 @@ impl Exchange for Kalshi {
             );
             cursor = page.cursor;
             // Stay below common REST rate limits, even for a large universe.
-            tokio::time::sleep(Duration::from_millis(120)).await;
+            tokio::time::sleep(Duration::from_millis(
+                self.discovery_delay_ms.load(Ordering::Relaxed),
+            ))
+            .await;
         }
+        tracing::info!(
+            pages,
+            markets = symbols.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "market discovery completed"
+        );
         Ok(symbols)
     }
 

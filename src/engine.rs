@@ -237,7 +237,7 @@ impl Engine {
                 self.snapshots_emitted += 1;
                 if previous_active.is_some() {
                     self.failovers += 1;
-                    tracing::info!(symbol = %data.symbol, source = active, "switched source; emitted snapshot");
+                    tracing::debug!(symbol = %data.symbol, source = active, "switched source; emitted snapshot");
                 }
             }
         } else if market.active == Some(source) {
@@ -272,6 +272,7 @@ impl Engine {
         now: Instant,
     ) -> Vec<Record> {
         let mut records = Vec::new();
+        let mut unavailable = 0usize;
         for (symbol, market) in &mut self.markets {
             if symbols.is_some_and(|s| !s.contains(symbol)) {
                 continue;
@@ -291,18 +292,26 @@ impl Engine {
                     )));
                     market.floor = replica.position;
                     self.snapshots_emitted += 1;
-                    tracing::info!(
+                    tracing::debug!(
                         symbol,
                         source = active,
                         "failed over to ready replica; emitted snapshot"
                     );
                 } else {
-                    tracing::warn!(
+                    unavailable += 1;
+                    tracing::debug!(
                         symbol,
                         "no caught-up healthy replica; suppressing output until recovered"
                     );
                 }
             }
+        }
+        if unavailable > 0 {
+            tracing::warn!(
+                source,
+                markets = unavailable,
+                "markets without a caught-up backup; suppressing output until recovered"
+            );
         }
         records
     }
@@ -333,7 +342,7 @@ impl Engine {
                 market.floor = replica.position;
                 self.failovers += 1;
                 self.snapshots_emitted += 1;
-                tracing::info!(
+                tracing::debug!(
                     symbol,
                     source,
                     "primary did not catch up during grace period; switched source with snapshot"

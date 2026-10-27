@@ -6,10 +6,12 @@ Validated locally on October 26–27, 2026 using stable Rust 1.99.1 in Ubuntu-24
 
 - `cargo fmt --all -- --check`
 - `cargo clippy --all-targets --locked -- -D warnings`
-- `cargo test --all-targets --locked`: 39 tests (29 unit tests, ten integration tests; Windows excludes the Unix signal test).
+- `cargo test --all-targets --locked`: 43 tests (29 unit tests, fourteen integration tests; Windows excludes the Unix signal test).
 - `cargo build --release --locked --bins`
 
 Coverage includes exact six-place arithmetic, quantity underflow/overflow handling, both supported signing algorithms, YES/NO normalization, per-subscription continuity, redundant-book deduplication, snapshot-first failover, repeated exchange clocks, clock resets, clockless timing, quiet-market duplicate grace, stable bounded sharding, global cooldown after throttling, connection-budget rejection, REST pagination/MVE exclusion, dynamic add/remove acknowledgements, reconnect after injected sequence loss, aligned SBE round trips, overwrite protection, and Unix SIGINT with byte-for-byte stdout/archive comparison.
+
+Four later regression tests cover gzip discovery, repair acknowledgements followed by resumed streaming, recovery from REST throttling without losing a page, and initial coverage of every shard before backup connections. The six-socket startup test allows 15 seconds for shutdown to accommodate shared-host/disk contention; its ordering and command assertions remain unchanged.
 
 The expanded suite also tests a primary that continues answering heartbeats but stops market updates: the full collector switches to its advancing backup and archives the newer state. A second adapter uses a different text protocol through the same runtime and SBE sink, proving the exchange boundary rather than only compiling a trait. Independent reference arithmetic detects intentionally wrong checkpoint snapshots, and verifies production-engine records and archive replay. Socket tests confirm the requested source port is visible at the peer. Maintenance tests require closed-to-open status and reject HTTP failures as evidence of a closure.
 
@@ -44,6 +46,10 @@ The largest reported engine-queue delay during full-load health windows was abou
 A separate 75-second quiet-market run (one replica, a shortened quiet threshold) performed a real unsubscribe/resubscribe cycle and received a new snapshot. Its archive contains three snapshots and no deltas, confirming that quiet-market repair works against the live server, not only the simulator.
 
 Raw binary captures and detailed diagnostics remain local under ignored `data/` and `work/` directories. Small JSON experiment reports without credentials are committed under `docs/results/`.
+
+## Performance follow-up
+
+The October 27 performance investigation removed per-frame subscription cloning, enabled compressed discovery, prioritized initial market coverage, and added five-second progress metrics. A controlled replay produced correct output roughly 30 times faster. The final three-minute full-market test validated **1,448,987 deltas, 435,085 snapshots, and 144,749 distinct symbols across lifecycle changes**. Initial coverage of 144,743 markets reached 100% about 40 seconds after the first connection, following a 35-second discovery. No socket failures occurred; a REST throttle was retried with slower future page pacing. The peak recorded output rate was 12,685 updates/second; the largest engine-queue delay was about 1.1 seconds near snapshot/checkpoint work. See [methods, raw measurements, and limits](PERFORMANCE.md).
 
 ## Limits
 

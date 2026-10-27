@@ -92,6 +92,14 @@ struct Pending {
 }
 
 impl Worker {
+    pub async fn run_after(self, delay: Duration) -> Result<()> {
+        tokio::select! {
+            _ = self.cancel.cancelled() => return Ok(()),
+            _ = tokio::time::sleep(delay) => {},
+        }
+        self.run().await
+    }
+
     pub async fn run(mut self) -> Result<()> {
         let mut failures = 0u32;
         loop {
@@ -183,6 +191,7 @@ impl Worker {
         let mut seq = Sequences::default();
         let mut next_id = 1u64;
         let mut pending: Option<Pending> = None;
+        let mut reconcile = true;
         let mut last_frame = Instant::now();
         let mut health = interval(Duration::from_secs(1));
         health.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -196,8 +205,11 @@ impl Worker {
             );
 
         loop {
-            // One in-flight subscription command. Reconcile only after its ACK.
-            if pending.is_none() {
+            // One in-flight command. Reconcile on control changes/ACKs, not on
+            // every market frame: cloning and diffing thousands of symbols here
+            // turns a constant-size update into work proportional to shard size.
+            if pending.is_none() && reconcile {
+                reconcile = false;
                 let desired = self.desired.borrow().clone();
                 if desired.is_empty() {
                     return Ok(());
@@ -253,8 +265,11 @@ impl Worker {
             }
             tokio::select! {
                 _ = self.cancel.cancelled() => return Ok(()),
-                changed = self.desired.changed() => if changed.is_err() { return Ok(()); },
-                Some(symbol) = self.repairs.recv() => { repair.insert(symbol); },
+                changed = self.desired.changed() => {
+                    if changed.is_err() { return Ok(()); }
+                    reconcile = true;
+                },
+                Some(symbol) = self.repairs.recv() => { repair.insert(symbol); reconcile = true; },
                 incoming = socket.next() => {
                     let received_at = Utc::now();
                     let now = Instant::now();
@@ -269,7 +284,7 @@ impl Worker {
                                 Payload::Subscribed { sid: new_sid } => {
                                     if let Some(p) = pending.as_ref().filter(|p| frame.id == Some(p.id))
                                         && let Command::Subscribe(symbols) = &p.command {
-                                            sid = Some(*new_sid); confirmed.extend(symbols.iter().cloned()); pending = None;
+                                            sid = Some(*new_sid); confirmed.extend(symbols.iter().cloned()); pending = None; reconcile = true;
                                         }
                                 }
                                 Payload::Ack => {
@@ -280,6 +295,7 @@ impl Worker {
                                             Command::Subscribe(_) => bail!("expected subscribed acknowledgement"),
                                         }
                                         pending = None;
+                                        reconcile = true;
                                     }
                                 }
                                 _ => {}
@@ -306,11 +322,17 @@ impl Worker {
                     if pending.as_ref().is_some_and(|p| p.sent.elapsed() >= Duration::from_secs(20)) { bail!("subscription command acknowledgement timeout"); }
                     // Offset replicas' quiet thresholds to preserve a healthy copy during repairs.
                     let quiet = Duration::from_secs(self.config.quiet_secs + (self.source % self.config.replicas) as u64 * 15);
+                    let mut reasons = BTreeMap::new();
                     for (symbol, activity) in &mut activities {
                         if let Some(reason) = activity.repair_reason(now, quiet) {
-                            tracing::warn!(source = self.source, symbol, reason, "resubscribing symbol");
+                            tracing::debug!(source = self.source, symbol, reason, "resubscribing symbol");
+                            *reasons.entry(reason).or_insert(0usize) += 1;
                             repair.insert(symbol.clone());
+                            reconcile = true;
                         }
+                    }
+                    if !reasons.is_empty() {
+                        tracing::warn!(source = self.source, ?reasons, "refreshing subscriptions after quiet/rate checks");
                     }
                 }
                 _ = heartbeat.tick() => { timeout(Duration::from_secs(5), socket.send(Message::Ping(Vec::new().into()))).await??; }
