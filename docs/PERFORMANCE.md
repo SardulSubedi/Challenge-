@@ -35,7 +35,12 @@ Most engine queue delays were small, but the largest observed window reached **1
 Use a new archive filename and allow initial discovery plus the connection ramp to finish. Watch `coverage_pct`, `updates_per_sec`, and `queue_depth`; cumulative `deltas` count output records since startup. `ready` counts initialized selected books. Wait for `all current markets have initialized books` before judging full-universe throughput. There is no fixed expected market-wide rate: activity changes over time, and many listed contracts are quiet.
 
 ```powershell
-.\scripts\cargo-wsl.ps1 run --release --bin collector '--' --output data/live-02.sbe --no-stdout
+.\scripts\run-wsl.ps1
 ```
 
 Ctrl+C closes sockets and flushes output. An archive name that already exists is refused rather than overwritten.
+
+
+## Native Linux storage and later latency work
+
+The snapshot/checkpoint pauses above describe an earlier version. Recordings now default to native Linux storage in the WSL launcher, snapshot deadlines are staggered, and aligned chunk writes run asynchronously with bounded memory and propagated failures. Health reports use incremental counters, and planned repairs coordinate through the engine to preserve an eligible alternate book. See [native measurements](NATIVE_LATENCY.md) and [final validation](FINAL_VALIDATION.md) for subsequent results and measurement boundaries. Source files remain in the Windows checkout; native build artifacts and recording writes avoid the Windows mount on the live data path.

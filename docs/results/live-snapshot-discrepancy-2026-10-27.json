@@ -1,0 +1,34 @@
+{
+  "kind": "live_verification",
+  "minimum_deltas": 100,
+  "passed": false,
+  "report": {
+    "archive_roundtrip": true,
+    "connection": {
+      "handshake_us": 139060,
+      "local_addr": "172.24.60.164:48858",
+      "peer_addr": "3.150.191.232:443",
+      "requested_port": null
+    },
+    "deltas": 145521,
+    "duration_ms": 90001,
+    "engine_updates_checked": 145521,
+    "initial_snapshots": 2,
+    "mismatches": [
+      {
+        "at": "2026-10-27T16:57:00.355351134+00:00",
+        "different_levels": 3,
+        "symbol": "KXBTC15M-26OCT271300-00"
+      },
+      {
+        "at": "2026-10-27T16:57:25.355417512+00:00",
+        "different_levels": 1,
+        "symbol": "KXBTC15M-26OCT271300-00"
+      }
+    ],
+    "snapshot_checks": 34,
+    "snapshot_mismatches": 2,
+    "started_at": "2026-10-27T16:56:50.322702957+00:00",
+    "symbols": 2
+  }
+}

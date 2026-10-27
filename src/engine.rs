@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 
 use crate::{
     book::Book,
+    coverage::{Index, State},
     exchange::{Change, MarketData},
     latency::{Observation, TimestampOrdinals, TimingBasis},
     output::Record,
@@ -15,7 +16,7 @@ use crate::{
 
 pub type Source = usize;
 
-#[derive(Default, Debug, serde::Serialize)]
+#[derive(Default, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Coverage {
     pub markets: usize,
     pub ready: usize,
@@ -48,6 +49,24 @@ struct Market {
     lagging_since: Option<Instant>,
 }
 
+impl Market {
+    fn coverage(&self, replicas: usize) -> State {
+        State {
+            ready: self.active.is_some(),
+            redundant: self.replicas.len() >= replicas,
+            caught_up: self
+                .replicas
+                .values()
+                .filter(|r| caught_up(r.position, self.floor))
+                .count()
+                >= replicas,
+            clocked: self
+                .active
+                .is_some_and(|s| self.replicas[&s].position.is_some()),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Outcome {
     pub records: Vec<Record>,
@@ -57,6 +76,8 @@ pub struct Outcome {
 
 pub struct Engine {
     markets: BTreeMap<String, Market>,
+    coverage: Index,
+    replicas: usize,
     failover: Duration,
     pending_lag: BTreeSet<String>,
     capture_timing: bool,
@@ -69,6 +90,8 @@ impl Engine {
     pub fn new(failover: Duration) -> Self {
         Self {
             markets: BTreeMap::new(),
+            coverage: Index::default(),
+            replicas: 2,
             failover,
             pending_lag: BTreeSet::new(),
             capture_timing: true,
@@ -83,12 +106,18 @@ impl Engine {
         self
     }
 
+    pub fn with_replicas(mut self, replicas: usize) -> Self {
+        assert!(replicas > 0 && self.markets.is_empty());
+        self.replicas = replicas;
+        self
+    }
+
     pub fn set_symbols(&mut self, symbols: &BTreeSet<String>) {
-        self.pending_lag.retain(|s| symbols.contains(s));
-        self.markets.retain(|symbol, _| symbols.contains(symbol));
-        for symbol in symbols {
-            self.markets.entry(symbol.clone()).or_default();
-        }
+        let old: BTreeSet<_> = self.markets.keys().cloned().collect();
+        self.change_symbols(
+            &symbols.difference(&old).cloned().collect(),
+            &old.difference(symbols).cloned().collect(),
+        );
     }
 
     pub fn ready_markets(&self) -> usize {
@@ -96,18 +125,34 @@ impl Engine {
     }
     pub fn change_symbols(&mut self, added: &BTreeSet<String>, removed: &BTreeSet<String>) {
         for symbol in removed {
-            self.markets.remove(symbol);
+            if let Some(market) = self.markets.remove(symbol) {
+                self.coverage
+                    .update(symbol, Some(market.coverage(self.replicas)), None);
+            }
             self.pending_lag.remove(symbol);
         }
         for symbol in added {
-            self.markets.entry(symbol.clone()).or_default();
+            if !self.markets.contains_key(symbol) {
+                self.markets.insert(symbol.clone(), Market::default());
+                self.coverage.update(
+                    symbol,
+                    None,
+                    Some(Market::default().coverage(self.replicas)),
+                );
+            }
         }
     }
     pub fn market_count(&self) -> usize {
         self.markets.len()
     }
 
-    pub fn coverage(&self, replicas: usize) -> Coverage {
+    pub fn coverage(&self) -> Coverage {
+        self.coverage.report()
+    }
+
+    #[cfg(test)]
+    fn scanned_coverage(&self) -> Coverage {
+        let replicas = self.replicas;
         let mut result = Coverage {
             markets: self.markets.len(),
             ..Default::default()
@@ -149,6 +194,37 @@ impl Engine {
         )))
     }
 
+    /// Reserve planned refreshes by invalidating approved books before granting
+    /// permission. Concurrent requests therefore cannot both remove the last copy.
+    /// Forced disconnects and corrupt books still invalidate unconditionally.
+    pub fn prepare_refresh(
+        &mut self,
+        source: Source,
+        symbols: &BTreeSet<String>,
+        all: bool,
+        timestamp: DateTime<Utc>,
+        now: Instant,
+    ) -> (BTreeSet<String>, Vec<Record>) {
+        let approved: BTreeSet<_> = symbols
+            .iter()
+            .filter(|symbol| {
+                self.replicas == 1
+                    || self.markets.get(*symbol).is_none_or(|m| {
+                        !m.replicas.contains_key(&source)
+                            || m.replicas
+                                .iter()
+                                .any(|(&s, r)| s != source && caught_up(r.position, m.floor))
+                    })
+            })
+            .cloned()
+            .collect();
+        if all && approved.len() != symbols.len() {
+            return (BTreeSet::new(), Vec::new());
+        }
+        let records = self.invalidate(source, Some(&approved), timestamp, now);
+        (approved, records)
+    }
+
     pub fn ingest(
         &mut self,
         source: Source,
@@ -160,6 +236,7 @@ impl Engine {
         let Some(market) = self.markets.get_mut(&data.symbol) else {
             return outcome;
         };
+        let before = market.coverage(self.replicas);
         let old_position = market.replicas.get(&source).and_then(|r| r.position);
         if market.active == Some(source) {
             market.lagging_since = None;
@@ -174,6 +251,11 @@ impl Engine {
                 .repairs
                 .extend(market.replicas.keys().map(|&s| (s, data.symbol.clone())));
             *market = Market::default();
+            self.coverage.update(
+                &data.symbol,
+                Some(before),
+                Some(market.coverage(self.replicas)),
+            );
             self.pending_lag.remove(&data.symbol);
             return outcome;
         }
@@ -323,6 +405,11 @@ impl Engine {
                 self.deltas_emitted += 1;
             }
         }
+        self.coverage.update(
+            &data.symbol,
+            Some(before),
+            Some(market.coverage(self.replicas)),
+        );
         outcome
     }
 
@@ -335,10 +422,20 @@ impl Engine {
     ) -> Vec<Record> {
         let mut records = Vec::new();
         let mut unavailable = 0usize;
-        for (symbol, market) in &mut self.markets {
-            if symbols.is_some_and(|s| !s.contains(symbol)) {
+        let affected: Vec<_> = match symbols {
+            Some(symbols) => symbols.iter().cloned().collect(),
+            None => self
+                .markets
+                .iter()
+                .filter(|(_, m)| m.replicas.contains_key(&source))
+                .map(|(s, _)| s.clone())
+                .collect(),
+        };
+        for symbol in &affected {
+            let Some(market) = self.markets.get_mut(symbol) else {
                 continue;
-            }
+            };
+            let before = market.coverage(self.replicas);
             market.replicas.remove(&source);
             if market.active == Some(source) {
                 market.lagging_since = None;
@@ -367,6 +464,8 @@ impl Engine {
                     );
                 }
             }
+            self.coverage
+                .update(symbol, Some(before), Some(market.coverage(self.replicas)));
         }
         if unavailable > 0 {
             tracing::warn!(
@@ -385,6 +484,7 @@ impl Engine {
             let Some(market) = self.markets.get_mut(&symbol) else {
                 continue;
             };
+            let before = market.coverage(self.replicas);
             if !market
                 .lagging_since
                 .is_some_and(|since| now.duration_since(since) >= self.failover)
@@ -411,6 +511,8 @@ impl Engine {
                 );
             }
             market.lagging_since = None;
+            self.coverage
+                .update(&symbol, Some(before), Some(market.coverage(self.replicas)));
             self.pending_lag.remove(&symbol);
         }
         records
@@ -464,6 +566,55 @@ fn best_source(market: &Market, now: Instant, freshness: Duration) -> Option<Sou
 mod tests {
     use super::*;
     use crate::Side;
+    #[test]
+    fn incremental_coverage_matches_books_through_resets_and_lifecycle_changes() {
+        for replicas in 1..=3 {
+            let mut e = Engine::new(Duration::from_millis(20)).with_replicas(replicas);
+            e.set_symbols(&["A".into(), "B".into()].into());
+            let now = Instant::now();
+            let t = Utc::now();
+            for i in 0..120 {
+                let source = i % 3;
+                let mut data = if i % 7 == 0 {
+                    snapshot((i / 7) as u64)
+                } else {
+                    delta((i / 7 + 1) as u64, if i % 11 == 0 { -9_000_000 } else { 1 })
+                };
+                if i % 5 == 0 {
+                    data.symbol = "B".into();
+                }
+                if i % 9 == 0 {
+                    data.clock = None;
+                }
+                e.ingest(source, data, t, now);
+                if i % 13 == 0 {
+                    e.invalidate(source, None, t, now);
+                }
+                e.check_lagging(t, now + Duration::from_secs(1));
+                assert_eq!(e.coverage(), e.scanned_coverage());
+            }
+            e.change_symbols(&["C".into()].into(), &["B".into()].into());
+            assert_eq!(e.coverage(), e.scanned_coverage());
+            e.set_symbols(&BTreeSet::new());
+            assert_eq!(e.coverage(), Coverage::default());
+        }
+    }
+
+    #[test]
+    fn planned_refreshes_cannot_remove_both_replicas() {
+        let mut e = engine();
+        let n = Instant::now();
+        let t = Utc::now();
+        e.ingest(0, snapshot(1), t, n);
+        e.ingest(1, snapshot(1), t, n);
+        let symbols = ["A".into()].into();
+        assert_eq!(e.prepare_refresh(0, &symbols, false, t, n).0, symbols);
+        assert!(e.prepare_refresh(1, &symbols, true, t, n).0.is_empty());
+        assert_eq!(e.coverage().ready, 1);
+        e.ingest(0, snapshot(2), t, n);
+        assert_eq!(e.prepare_refresh(1, &symbols, true, t, n).0, symbols);
+        assert_eq!(e.coverage(), e.scanned_coverage());
+    }
     #[test]
     fn clockless_feed_records_timestamp_fingerprints_and_can_fail_over() {
         let mut e = engine();

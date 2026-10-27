@@ -49,6 +49,8 @@ struct MockState {
     corrupt_checkpoint: AtomicBool,
     stall_first: AtomicBool,
     omit_snapshot: Mutex<Option<String>>,
+    omit_backup: AtomicBool,
+    lifecycle: AtomicBool,
     started: Instant,
 }
 
@@ -64,6 +66,8 @@ impl MockState {
             corrupt_checkpoint: AtomicBool::new(false),
             stall_first: AtomicBool::new(false),
             omit_snapshot: Mutex::new(None),
+            omit_backup: AtomicBool::new(false),
+            lifecycle: AtomicBool::new(false),
             started: Instant::now(),
         })
     }
@@ -77,6 +81,8 @@ async fn serve_socket(mut socket: WebSocket, state: Arc<MockState>) {
     let connection = state.connections.fetch_add(1, Ordering::SeqCst);
     let mut seq = 0u64;
     let mut clocks = BTreeMap::<String, u64>::new();
+    let mut lifecycle_symbols = None;
+    let mut lifecycle_seq = 0u64;
     let mut tick = tokio::time::interval(Duration::from_millis(50));
     let result: Result<()> = async {
         loop {
@@ -87,6 +93,11 @@ async fn serve_socket(mut socket: WebSocket, state: Arc<MockState>) {
                             let command: Value = serde_json::from_str(text.as_str())?;
                             state.commands.lock().unwrap().push(command.clone());
                             let id = command["id"].as_u64().unwrap();
+                            if command["params"]["channels"][0] == "market_lifecycle_v2" {
+                                lifecycle_symbols = Some(state.universe.lock().unwrap().clone());
+                                socket.send(Message::Text(json!({"id":id,"type":"subscribed","msg":{"sid":2,"channel":"market_lifecycle_v2"}}).to_string().into())).await?;
+                                continue;
+                            }
                             let action = command["params"]["action"].as_str().unwrap_or("subscribe");
                             let symbols = command["params"]["market_tickers"].as_array().unwrap();
                             if action == "subscribe" {
@@ -99,6 +110,7 @@ async fn serve_socket(mut socket: WebSocket, state: Arc<MockState>) {
                                 let symbol = symbol.as_str().unwrap();
                                 if action == "delete_markets" { clocks.remove(symbol); continue; }
                                 if state.omit_snapshot.lock().unwrap().as_deref() == Some(symbol) { continue; }
+                                if connection > 0 && state.omit_backup.load(Ordering::SeqCst) { continue; }
                                 let clock = state.started.elapsed().as_millis() as u64 / 50 + 1;
                                 if action == "get_snapshot" && let Some(&old) = clocks.get(symbol) && clock > old {
                                     seq += 1;
@@ -118,6 +130,16 @@ async fn serve_socket(mut socket: WebSocket, state: Arc<MockState>) {
                     }
                 }
                 _ = tick.tick() => {
+                    if let Some(previous) = &mut lifecycle_symbols {
+                        let current = state.universe.lock().unwrap().clone();
+                        for (symbols, kind) in [(current.difference(previous).cloned().collect::<Vec<_>>(), "activated"), (previous.difference(&current).cloned().collect(), "determined")] {
+                            for symbol in symbols {
+                                lifecycle_seq += 1;
+                                socket.send(Message::Text(json!({"type":"market_lifecycle_v2","sid":2,"seq":lifecycle_seq,"msg":{"market_ticker":symbol,"event_type":kind}}).to_string().into())).await?;
+                            }
+                        }
+                        *previous = current;
+                    }
                     for (symbol, old) in &mut clocks {
                         let clock = state.started.elapsed().as_millis() as u64 / 50 + 1;
                         if connection == 0 && clock >= 20 && state.stall_first.load(Ordering::SeqCst) { continue; }
@@ -160,6 +182,16 @@ struct MockExchange {
 }
 #[async_trait]
 impl Exchange for MockExchange {
+    fn lifecycle_subscription(&self, id: u64) -> Option<String> {
+        if self.state.lifecycle.load(Ordering::SeqCst) {
+            self.codec.lifecycle_subscription(id)
+        } else {
+            None
+        }
+    }
+    async fn resolve_symbol(&self, symbol: &str) -> Result<bool> {
+        Ok(self.state.universe.lock().unwrap().contains(symbol))
+    }
     async fn discover(&self) -> Result<BTreeSet<String>> {
         Ok(self.state.universe.lock().unwrap().clone())
     }
@@ -267,6 +299,138 @@ async fn periodic_snapshot_batches_continue_for_each_available_market() {
         }
     }
     assert!(counts["A"] >= 3 && counts["B"] >= 3);
+    server.abort();
+}
+
+#[tokio::test]
+async fn missing_backup_is_reported_as_incomplete_even_when_primary_streams() {
+    let state = MockState::new(false);
+    state.omit_backup.store(true, Ordering::SeqCst);
+    let (address, server) = start_server(state.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let status = dir.path().join("coverage.json");
+    let mut config = config();
+    config.no_stdout = true;
+    config.run_secs = Some(2);
+    config.output = Some(dir.path().join("backup.sbe"));
+    config.coverage_report = Some(status.clone());
+    let error = runtime::run(config, exchange(state, address), CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("1 lack configured replicas"));
+    let report: Value = serde_json::from_slice(&std::fs::read(status).unwrap()).unwrap();
+    assert_eq!(report["coverage"]["missing"], json!([]));
+    assert_eq!(report["coverage"]["under_replicated"], json!(["A"]));
+    server.abort();
+}
+
+#[tokio::test]
+async fn lifecycle_feed_adds_and_removes_markets_before_the_next_poll() {
+    let state = MockState::new(false);
+    state.lifecycle.store(true, Ordering::SeqCst);
+    let (address, server) = start_server(state.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let status = dir.path().join("coverage.json");
+    let mut config = config();
+    config.discovery_secs = 60;
+    config.symbols_per_socket = 2000;
+    config.connect_interval_ms = 20;
+    config.no_stdout = true;
+    config.output = Some(dir.path().join("lifecycle.sbe"));
+    config.coverage_report = Some(status.clone());
+    let cancel = CancellationToken::new();
+    let task = tokio::spawn(runtime::run(
+        config,
+        exchange(state.clone(), address),
+        cancel.clone(),
+    ));
+    timeout(Duration::from_secs(5), async {
+        while state.commands.lock().unwrap().len() < 4 {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    sleep(Duration::from_millis(100)).await;
+    let changed = Instant::now();
+    *state.universe.lock().unwrap() = ["B".into()].into();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let adds = state
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| {
+                    c["params"]["action"] == "add_markets"
+                        && c["params"]["market_tickers"] == json!(["B"])
+                })
+                .count();
+            let deletes = state
+                .commands
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| {
+                    c["params"]["action"] == "delete_markets"
+                        && c["params"]["market_tickers"] == json!(["A"])
+                })
+                .count();
+            if adds == 2 && deletes == 2 {
+                break;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(changed.elapsed() < Duration::from_secs(5));
+    sleep(Duration::from_millis(100)).await;
+    cancel.cancel();
+    timeout(Duration::from_secs(15), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let report: Value = serde_json::from_slice(&std::fs::read(status).unwrap()).unwrap();
+    assert_eq!(report["coverage"]["markets"], 1);
+    assert_eq!(report["coverage"]["ready"], 1);
+    assert_eq!(report["coverage"]["redundant"], 1);
+    assert!(
+        state
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c["params"]["action"] == "delete_markets"
+                && c["params"]["market_tickers"] == json!(["A"]))
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn lifecycle_lookup_rechecks_status_and_excludes_multivariate_markets() {
+    async fn page(Query(q): Query<HashMap<String, String>>) -> Json<Value> {
+        assert_eq!(q["status"], "open");
+        assert_eq!(q["mve_filter"], "exclude");
+        Json(json!({"markets":[
+            {"ticker":"LIVE","status":"active"},
+            {"ticker":"CLOSED","status":"closed"},
+            {"ticker":"MVE","status":"active","mve_selected_legs":[{}]}
+        ],"cursor":""}))
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, Router::new().route("/markets", get(page)))
+            .await
+            .unwrap();
+    });
+    let adapter = Kalshi::new(format!("http://{address}"), "ws://localhost".into(), None).unwrap();
+    assert!(adapter.resolve_symbol("LIVE").await.unwrap());
+    for symbol in ["CLOSED", "MVE", "MISSING"] {
+        assert!(!adapter.resolve_symbol(symbol).await.unwrap());
+    }
     server.abort();
 }
 

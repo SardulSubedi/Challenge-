@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
 use futures_util::{SinkExt, StreamExt};
 use tokio::{
-    sync::{Mutex, mpsc, watch},
+    sync::{Mutex, mpsc, oneshot, watch},
     time::{interval, timeout},
 };
 use tokio_tungstenite::tungstenite::Message;
@@ -23,6 +23,14 @@ use crate::{
 };
 
 pub enum Event {
+    Lifecycle(String),
+    Rescan,
+    Refresh {
+        source: Source,
+        symbols: BTreeSet<String>,
+        all: bool,
+        reply: oneshot::Sender<BTreeSet<String>>,
+    },
     Data {
         source: Source,
         data: MarketData,
@@ -102,6 +110,7 @@ impl Worker {
 
     pub async fn run(mut self) -> Result<()> {
         let mut failures = 0u32;
+        let mut reconnect = false;
         loop {
             while self.desired.borrow().is_empty() {
                 tokio::select! {
@@ -116,7 +125,8 @@ impl Worker {
                 return Ok(());
             }
             let started = Instant::now();
-            let result = self.connect_and_run().await;
+            let result = self.connect_and_run(reconnect).await;
+            reconnect = true;
             // All books on this transport become invalid before any new connection can send data.
             if self
                 .events
@@ -162,7 +172,7 @@ impl Worker {
         }
     }
 
-    async fn connect_and_run(&mut self) -> Result<()> {
+    async fn connect_and_run(&mut self, reconnect: bool) -> Result<()> {
         let request = self.exchange.request()?;
         let cancel = self.cancel.clone();
         let (mut socket, connection) = tokio::select! {
@@ -177,19 +187,41 @@ impl Worker {
             handshake_us = connection.handshake_us,
             "socket connected"
         );
-        let result = self.session(&mut socket).await;
+        let result = self.session(&mut socket, reconnect).await;
         // Bound close: an unresponsive peer must not prevent shutdown/recovery.
         let _ = timeout(Duration::from_secs(2), socket.close(None)).await;
         result
     }
 
-    async fn session(&mut self, socket: &mut Socket) -> Result<()> {
+    async fn session(&mut self, socket: &mut Socket, reconnect: bool) -> Result<()> {
+        // Two existing orderbook sockets carry redundant global lifecycle feeds;
+        // this consumes no additional connections from the account budget.
+        let mut lifecycle_pending = if self.source < self.config.replicas {
+            if let Some(command) = self.exchange.lifecycle_subscription(1) {
+                timeout(
+                    Duration::from_secs(5),
+                    socket.send(Message::Text(command.into())),
+                )
+                .await??;
+                Some(Instant::now())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let mut sid = None;
         let mut confirmed = BTreeSet::new();
         let mut repair = BTreeSet::new();
         let mut activities = BTreeMap::<String, Activity>::new();
         let mut seq = Sequences::default();
-        let mut next_id = 1u64;
+        // Kalshi omits zero IDs in acknowledgements. Reserve positive ID 1 for
+        // lifecycle and start orderbook commands at 2 on those sockets.
+        let mut next_id = if lifecycle_pending.is_some() {
+            2u64
+        } else {
+            1u64
+        };
         let mut pending: Option<Pending> = None;
         let mut reconcile = true;
         let mut last_frame = Instant::now();
@@ -197,7 +229,7 @@ impl Worker {
         health.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut heartbeat = interval(Duration::from_secs(10));
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let recycle_at = Instant::now()
+        let mut recycle_at = Instant::now()
             + Duration::from_secs(
                 self.config.recycle_secs
                     + (self.source % self.config.replicas) as u64
@@ -282,6 +314,10 @@ impl Worker {
                             seq.check(frame.sid, frame.seq)?;
                             match &frame.payload {
                                 Payload::Subscribed { sid: new_sid } => {
+                                    if frame.id == Some(1) && lifecycle_pending.take().is_some() {
+                                        tracing::info!(source = self.source, "lifecycle subscription ready");
+                                        if reconnect { self.emit(Event::Rescan).await?; }
+                                    }
                                     if let Some(p) = pending.as_ref().filter(|p| frame.id == Some(p.id))
                                         && let Command::Subscribe(symbols) = &p.command {
                                             sid = Some(*new_sid); confirmed.extend(symbols.iter().cloned()); pending = None; reconcile = true;
@@ -300,6 +336,9 @@ impl Worker {
                                 }
                                 _ => {}
                             }
+                            if let Payload::Lifecycle(symbol) = &frame.payload {
+                                self.emit(Event::Lifecycle(symbol.clone())).await?;
+                            }
                             if let Payload::Market(data) = frame.payload {
                                 if !self.desired.borrow().contains(&data.symbol) || repair.contains(&data.symbol) { continue; }
                                 if let Some(activity) = activities.get_mut(&data.symbol) {
@@ -317,22 +356,35 @@ impl Worker {
                 }
                 _ = health.tick() => {
                     let now = Instant::now();
-                    if now >= recycle_at { tracing::info!(source = self.source, "scheduled staggered socket recycle"); return Ok(()); }
+                    if now >= recycle_at {
+                        let desired = self.desired.borrow().clone();
+                        let approved = self.request_refresh(desired.clone(), true).await?;
+                        if approved == desired {
+                            tracing::info!(source = self.source, "scheduled staggered socket recycle");
+                            return Ok(());
+                        }
+                        tracing::warn!(source = self.source, "postponing planned recycle until alternate books are ready");
+                        recycle_at = now + Duration::from_secs(20);
+                    }
                     if now.duration_since(last_frame) > Duration::from_secs(self.config.heartbeat_timeout_secs) { bail!("websocket heartbeat timeout"); }
                     if pending.as_ref().is_some_and(|p| p.sent.elapsed() >= Duration::from_secs(20)) { bail!("subscription command acknowledgement timeout"); }
+                    if lifecycle_pending.is_some_and(|sent| sent.elapsed() >= Duration::from_secs(20)) { bail!("lifecycle subscription acknowledgement timeout"); }
                     // Offset replicas' quiet thresholds to preserve a healthy copy during repairs.
                     let quiet = Duration::from_secs(self.config.quiet_secs + (self.source % self.config.replicas) as u64 * 15);
                     let mut reasons = BTreeMap::new();
+                    let mut requested = BTreeSet::new();
                     for (symbol, activity) in &mut activities {
                         if let Some(reason) = activity.repair_reason(now, quiet) {
                             tracing::debug!(source = self.source, symbol, reason, "resubscribing symbol");
                             *reasons.entry(reason).or_insert(0usize) += 1;
-                            repair.insert(symbol.clone());
-                            reconcile = true;
+                            requested.insert(symbol.clone());
                         }
                     }
                     if !reasons.is_empty() {
-                        tracing::warn!(source = self.source, ?reasons, "refreshing subscriptions after quiet/rate checks");
+                        let approved = self.request_refresh(requested, false).await?;
+                        tracing::warn!(source = self.source, ?reasons, approved = approved.len(), "refreshing subscriptions after quiet/rate checks");
+                        reconcile |= !approved.is_empty();
+                        repair.extend(approved);
                     }
                 }
                 _ = heartbeat.tick() => { timeout(Duration::from_secs(5), socket.send(Message::Ping(Vec::new().into()))).await??; }
@@ -344,6 +396,25 @@ impl Worker {
         tokio::select! {
             _ = self.cancel.cancelled() => bail!("shutdown"),
             result = timeout(Duration::from_secs(5), self.events.send(event)) => result?.context("collector stopped"),
+        }
+    }
+
+    async fn request_refresh(
+        &self,
+        symbols: BTreeSet<String>,
+        all: bool,
+    ) -> Result<BTreeSet<String>> {
+        let (reply, response) = oneshot::channel();
+        self.emit(Event::Refresh {
+            source: self.source,
+            symbols,
+            all,
+            reply,
+        })
+        .await?;
+        tokio::select! {
+            _ = self.cancel.cancelled() => Ok(BTreeSet::new()),
+            result = response => result.context("collector stopped before refresh decision"),
         }
     }
 }

@@ -38,10 +38,21 @@ impl Shards {
             self.assignments[shard].insert(symbol.clone());
         }
     }
-    pub fn change_symbols(&mut self, added: &BTreeSet<String>, removed: &BTreeSet<String>) {
+    pub fn change_symbols(
+        &mut self,
+        added: &BTreeSet<String>,
+        removed: &BTreeSet<String>,
+    ) -> BTreeSet<usize> {
+        let mut changed = BTreeSet::new();
         for symbol in removed {
-            if let Some(shard) = self.assignments.iter_mut().find(|s| s.contains(symbol)) {
+            if let Some((index, shard)) = self
+                .assignments
+                .iter_mut()
+                .enumerate()
+                .find(|(_, s)| s.contains(symbol))
+            {
                 shard.remove(symbol);
+                changed.insert(index);
             }
         }
         for symbol in added {
@@ -57,13 +68,32 @@ impl Shards {
                     self.assignments.len() - 1
                 });
             self.assignments[shard].insert(symbol.clone());
+            changed.insert(shard);
         }
+        changed
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn incremental_changes_touch_only_the_affected_shard() {
+        let mut s = Shards::new(2);
+        s.reconcile(&["A", "B", "C", "D"].map(String::from).into());
+        let old = s.assignments.clone();
+        assert_eq!(
+            s.change_symbols(&["E".into()].into(), &["A".into()].into()),
+            [0].into()
+        );
+        assert_eq!(s.assignments[1], old[1]);
+        assert_eq!(s.assignments[0], ["B".into(), "E".into()].into());
+        assert_eq!(
+            s.change_symbols(&["F".into()].into(), &BTreeSet::new()),
+            [2].into()
+        );
+        assert!(s.assignments.iter().all(|s| s.len() <= 2));
+    }
     #[test]
     fn stable_placement_removal_and_capacity() {
         let mut s = Shards::new(2);

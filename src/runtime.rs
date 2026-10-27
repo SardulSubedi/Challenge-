@@ -20,6 +20,7 @@ use crate::{
     output::{CoverageStatus, Output, Record, Sink},
     schedule::Snapshots,
     sharding::Shards,
+    universe,
     worker::{ConnectGate, Event, Worker},
 };
 
@@ -51,6 +52,7 @@ pub async fn run(
     )?
     .with_coverage(config.coverage_report.clone())?;
     let pipeline = sink.metrics.clone();
+    let run_started = Instant::now();
     let timer = config.run_secs.map(|secs| {
         let cancel = cancel.clone();
         tokio::spawn(async move {
@@ -62,18 +64,45 @@ pub async fn run(
     let mut writer = tokio::task::spawn_blocking(move || sink.run(output_rx));
     let (events_tx, mut events_rx) = mpsc::channel(config.queue_capacity);
     let mut last_discovery = Instant::now();
-    let (universe_tx, mut universe_rx) = watch::channel((initial.clone(), last_discovery));
+    let (universe_tx, universe_rx) = mpsc::channel(1);
+    let rescan = Arc::new(tokio::sync::Notify::new());
+    let (hint_tx, hint_rx) = mpsc::channel(16_384);
+    let (resolved_tx, resolved_rx) = mpsc::channel(128);
+    let resolver = tokio::spawn(universe::resolve(
+        exchange.clone(),
+        hint_rx,
+        resolved_tx,
+        rescan.clone(),
+        cancel.clone(),
+    ));
+    let (updates_tx, mut updates_rx) = mpsc::channel(16);
+    let reconciler = tokio::spawn(universe::reconcile(
+        initial.clone(),
+        universe_rx,
+        resolved_rx,
+        updates_tx,
+        cancel.clone(),
+    ));
     let discovery_config = config.clone();
     let discovery_exchange = exchange.clone();
     let discovery_cancel = cancel.clone();
+    let discovery_rescan = rescan.clone();
     let discovery = tokio::spawn(async move {
         loop {
-            tokio::select! { _ = discovery_cancel.cancelled() => break, _ = tokio::time::sleep(Duration::from_secs(discovery_config.discovery_secs)) => {} }
+            tokio::select! { _ = discovery_cancel.cancelled() => break, _ = discovery_rescan.notified() => {}, _ = tokio::time::sleep(Duration::from_secs(discovery_config.discovery_secs)) => {} }
+            let started = Instant::now();
             let result = tokio::select! { _ = discovery_cancel.cancelled() => break, result = discovery_exchange.discover() => result };
             match result {
                 Ok(symbols) => {
-                    universe_tx
-                        .send_replace((filter_symbols(symbols, &discovery_config), Instant::now()));
+                    let update = (
+                        filter_symbols(symbols, &discovery_config),
+                        started,
+                        Instant::now(),
+                    );
+                    tokio::select! {
+                        _ = discovery_cancel.cancelled() => break,
+                        result = universe_tx.send(update) => if result.is_err() { break; },
+                    }
                 }
                 Err(error) => {
                     tracing::warn!(%error, "discovery failed; retaining last complete universe")
@@ -84,14 +113,17 @@ pub async fn run(
     let gate = Arc::new(ConnectGate::new(Duration::from_millis(
         config.connect_interval_ms,
     )));
-    let mut engine = Engine::new(config.failover()).with_timing(config.latency_log.is_some());
+    let mut engine = Engine::new(config.failover())
+        .with_replicas(config.replicas)
+        .with_timing(config.latency_log.is_some());
     let mut shards = Shards::new(config.symbols_per_socket);
     let mut subscriptions = Vec::<watch::Sender<BTreeSet<String>>>::new();
     let mut repair_txs = Vec::<mpsc::UnboundedSender<String>>::new();
     let mut workers = JoinSet::new();
-    let mut universe = initial;
-    engine.set_symbols(&universe);
-    shards.reconcile(&universe);
+    engine.set_symbols(&initial);
+    shards.reconcile(&initial);
+    let mut changed_shards: BTreeSet<_> = (0..shards.assignments.len()).collect();
+    drop(initial);
     let mut needs_reconcile = true;
     let mut shutdown = false;
     let mut fatal = None;
@@ -127,7 +159,8 @@ pub async fn run(
                 continue;
             }
             let initial_ramp = subscriptions.is_empty();
-            for (shard, symbols) in shards.assignments.iter().enumerate() {
+            for shard in std::mem::take(&mut changed_shards) {
+                let symbols = &shards.assignments[shard];
                 for replica in 0..config.replicas {
                     let source = shard * config.replicas + replica;
                     if source == subscriptions.len() {
@@ -167,7 +200,7 @@ pub async fn run(
                 first_copy_ramp_secs = shards.assignments.len().saturating_sub(1) as u64
                     * config.connect_interval_ms
                     / 1000,
-                markets = universe.len(),
+                markets = engine.market_count(),
                 shards = shards.assignments.len(),
                 sockets = subscriptions.len(),
                 "subscription universe reconciled"
@@ -203,25 +236,41 @@ pub async fn run(
                     fatal = Some(error); cancel.cancel(); shutdown = true;
                 }
             }
-            changed = universe_rx.changed(), if !shutdown => {
-                if changed.is_ok() {
-                    let (updated, completed) = universe_rx.borrow_and_update().clone();
-                    last_discovery = completed;
-                    if updated != universe {
-                        let added = updated.difference(&universe).cloned().collect();
-                        let removed = universe.difference(&updated).cloned().collect();
-                        engine.change_symbols(&added, &removed);
-                        shards.change_symbols(&added, &removed);
-                        for symbol in &removed { snapshot_schedule.remove(symbol); }
-                        universe = updated; needs_reconcile = true;
+            update = updates_rx.recv(), if !shutdown => {
+                if let Some(update) = update {
+                    if let Some(completed) = update.discovery_completed { last_discovery = completed; }
+                    if !update.added.is_empty() || !update.removed.is_empty() {
+                        engine.change_symbols(&update.added, &update.removed);
+                        changed_shards.extend(shards.change_symbols(&update.added, &update.removed));
+                        for symbol in &update.removed { snapshot_schedule.remove(symbol); }
+                        needs_reconcile = true;
                     }
                 }
-                else if !cancel.is_cancelled() { fatal = Some(anyhow::anyhow!("market discovery task stopped")); cancel.cancel(); shutdown = true; }
+                else if !cancel.is_cancelled() { fatal = Some(anyhow::anyhow!("universe reconciliation stopped")); cancel.cancel(); shutdown = true; }
             }
             Some(event) = events_rx.recv() => {
                 let now = Instant::now();
                 let timestamp = Utc::now();
                 match event {
+                    Event::Rescan => { if !shutdown { rescan.notify_one(); } }
+                    Event::Lifecycle(symbol) => {
+                        if !shutdown && (config.symbols.is_empty() || config.symbols.contains(&symbol)) && hint_tx.try_send(symbol).is_err() {
+                            tracing::warn!("lifecycle hint queue full; requesting complete discovery");
+                            rescan.notify_one();
+                        }
+                    }
+                    Event::Refresh { source, symbols, all, reply } => {
+                        // Do not start elective maintenance in the last five
+                        // seconds of a timed sample. Existing repairs can finish;
+                        // real failures and missing coverage still fail completion.
+                        let finishing_sample = config.run_secs.is_some_and(|secs| run_started.elapsed().as_secs() >= secs.saturating_sub(5));
+                        if shutdown || cancel.is_cancelled() || finishing_sample { let _ = reply.send(BTreeSet::new()); }
+                        else {
+                            let (approved, records) = engine.prepare_refresh(source, &symbols, all, timestamp, now);
+                            to_write.extend(records.into_iter().map(Output::Record));
+                            let _ = reply.send(approved);
+                        }
+                    }
                     Event::Data { source, data, received_at, now: received_mono } => {
                         received = Some(received_mono);
                         let delay = now.saturating_duration_since(received_mono).as_micros().min(i64::MAX as u128) as i64;
@@ -256,7 +305,9 @@ pub async fn run(
                 let now = Instant::now();
                 let elapsed = now.duration_since(metrics_at).as_secs_f64();
                 let updates_per_sec = (engine.deltas_emitted - last_deltas) as f64 / elapsed.max(0.001);
-                let coverage = engine.coverage(config.replicas);
+                let coverage_started = Instant::now();
+                let coverage = engine.coverage();
+                let coverage_us = coverage_started.elapsed().as_micros() as u64;
                 let ready = coverage.ready;
                 let discovery_age_secs = last_discovery.elapsed().as_secs();
                 let discovery_fresh = discovery_age_secs <= config.discovery_secs.saturating_mul(3);
@@ -270,6 +321,7 @@ pub async fn run(
                     redundant = coverage.redundant, caught_up_redundant = coverage.caught_up_redundant, clocked_markets = coverage.clocked_markets,
                     missing = coverage.missing.len(), under_replicated = coverage.under_replicated.len(),
                     discovery_age_secs, discovery_fresh,
+                    coverage_us,
                     engine_p99_upper_us = engine_latency.p99_upper_us,
                     sink_samples = sink_latency.samples, receive_to_sink_p50_upper_us = sink_latency.p50_upper_us,
                     receive_to_sink_p99_upper_us = sink_latency.p99_upper_us, receive_to_sink_max_us = sink_latency.max_us,
@@ -318,9 +370,15 @@ pub async fn run(
         timer.abort();
     }
     discovery.await.context("discovery task panicked")?;
+    drop(hint_tx);
+    resolver.await.context("lifecycle resolver task panicked")?;
+    reconciler
+        .await
+        .context("universe reconciler task panicked")??;
     drop(events_tx);
-    let final_coverage = engine.coverage(config.replicas);
+    let final_coverage = engine.coverage();
     let missing = final_coverage.missing.len();
+    let under_replicated = final_coverage.under_replicated.len();
     let discovery_age_secs = last_discovery.elapsed().as_secs();
     let discovery_fresh = discovery_age_secs <= config.discovery_secs.saturating_mul(3);
     if !writer_finished && config.coverage_report.is_some() {
@@ -352,8 +410,8 @@ pub async fn run(
         return Err(error);
     }
     anyhow::ensure!(
-        missing == 0 && discovery_fresh,
-        "incomplete collection: {missing} current markets lack a ready book; discovery_fresh={discovery_fresh}; inspect coverage report and logs"
+        missing == 0 && under_replicated == 0 && discovery_fresh,
+        "incomplete collection: {missing} current markets lack a ready book; {under_replicated} lack configured replicas; discovery_fresh={discovery_fresh}; inspect coverage report and logs"
     );
     anyhow::ensure!(
         engine.market_count() == 0 || engine.snapshots_emitted > 0,

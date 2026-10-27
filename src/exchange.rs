@@ -37,6 +37,7 @@ pub struct MarketData {
 #[derive(Debug)]
 pub enum Payload {
     Market(MarketData),
+    Lifecycle(String),
     Subscribed { sid: u64 },
     Ack,
     Other,
@@ -65,6 +66,13 @@ pub trait Exchange: Send + Sync {
     fn request(&self) -> Result<Request>;
     fn command(&self, id: u64, command: &Command) -> Result<String>;
     fn decode(&self, message: &str, received_at: DateTime<Utc>) -> Result<Frame>;
+    /// Optional fast discovery path. Other adapters can retain periodic discovery.
+    fn lifecycle_subscription(&self, _id: u64) -> Option<String> {
+        None
+    }
+    async fn resolve_symbol(&self, _symbol: &str) -> Result<bool> {
+        bail!("adapter does not support lifecycle resolution")
+    }
 }
 
 pub struct Kalshi {
@@ -120,6 +128,37 @@ struct Market {
 
 #[async_trait]
 impl Exchange for Kalshi {
+    fn lifecycle_subscription(&self, id: u64) -> Option<String> {
+        Some(
+            json!({"id":id,"cmd":"subscribe","params":{"channels":["market_lifecycle_v2"]}})
+                .to_string(),
+        )
+    }
+
+    async fn resolve_symbol(&self, symbol: &str) -> Result<bool> {
+        let response = self
+            .client
+            .get(format!("{}/markets", self.rest_url.trim_end_matches('/')))
+            .query(&[
+                ("tickers", symbol),
+                ("status", "open"),
+                ("mve_filter", "exclude"),
+                ("limit", "1000"),
+            ])
+            .send()
+            .await?
+            .error_for_status()?;
+        let page: MarketsPage = response.json().await?;
+        ensure!(
+            page.cursor.is_empty(),
+            "targeted market lookup unexpectedly paginated"
+        );
+        Ok(page
+            .markets
+            .into_iter()
+            .any(|m| m.ticker == symbol && m.is_live_regular()))
+    }
+
     async fn discover(&self) -> Result<BTreeSet<String>> {
         let mut symbols = BTreeSet::new();
         let mut cursor = String::new();
@@ -180,14 +219,7 @@ impl Exchange for Kalshi {
                 .await?;
             pages += 1;
             for market in page.markets {
-                if matches!(market.status.as_str(), "active" | "open")
-                    && market
-                        .mve_collection_ticker
-                        .as_deref()
-                        .unwrap_or("")
-                        .is_empty()
-                    && market.mve_selected_legs.as_ref().is_none_or(Vec::is_empty)
-                {
+                if market.is_live_regular() {
                     symbols.insert(market.ticker);
                 }
             }
@@ -252,6 +284,32 @@ impl Exchange for Kalshi {
             },
             "ok" => Payload::Ack,
             "unsubscribed" => bail!("exchange unexpectedly ended subscription"),
+            "market_lifecycle_v2" => {
+                ensure!(
+                    sid.is_some() && v["seq"].as_u64().is_some(),
+                    "lifecycle message lacks sid/seq"
+                );
+                if matches!(
+                    msg["event_type"].as_str(),
+                    Some(
+                        "created"
+                            | "activated"
+                            | "deactivated"
+                            | "determined"
+                            | "settled"
+                            | "close_date_updated"
+                    )
+                ) {
+                    Payload::Lifecycle(
+                        msg["market_ticker"]
+                            .as_str()
+                            .context("lifecycle message lacks ticker")?
+                            .to_owned(),
+                    )
+                } else {
+                    Payload::Other
+                }
+            }
             "orderbook_snapshot" | "orderbook_delta" => {
                 ensure!(
                     sid.is_some() && v["seq"].as_u64().is_some(),
@@ -332,6 +390,18 @@ impl Exchange for Kalshi {
             seq: v["seq"].as_u64(),
             payload,
         })
+    }
+}
+
+impl Market {
+    fn is_live_regular(&self) -> bool {
+        matches!(self.status.as_str(), "active" | "open")
+            && self
+                .mve_collection_ticker
+                .as_deref()
+                .unwrap_or("")
+                .is_empty()
+            && self.mve_selected_legs.as_ref().is_none_or(Vec::is_empty)
     }
 }
 

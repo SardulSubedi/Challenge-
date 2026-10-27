@@ -29,14 +29,14 @@ The final 180-second full-universe run discovered 144,759 markets, emitted 1,633
 
 In the final minute, the median of five-second-window p50 upper bounds was 127 microseconds. Window p99 upper bounds ranged from 2,047 to 16,383 microseconds; the maximum receive-to-sink observation was 32,347 microseconds. These are window statistics, not an aggregate percentile. Timing runs from application frame receipt to archive encoding with stdout disabled; it excludes network transit and durable disk completion. This was a local live test, not a controlled infrastructure benchmark.
 
-Two 256 MiB write-and-sync rounds measured about 265–267 ms on native Linux storage versus 916–986 ms on the Windows mount. Normal collection does not fsync each chunk. Detailed reports: [latency](results/native-latency-2026-10-27.json), [storage](results/native-storage-comparison-2026-10-27.json).
+Two 64 MiB write-and-sync rounds measured about 265–267 ms on native Linux storage versus 916–986 ms on the Windows mount. Normal collection does not fsync each chunk. Detailed reports: [latency](results/native-latency-2026-10-27.json), [storage](results/native-storage-comparison-2026-10-27.json).
 
-## Resume tomorrow
+## Follow-up implementation
 
-1. Confirm Linux and Windows CI for the pushed commit.
-2. Profile remaining latency tails; coverage still scans the universe every five seconds, and VM scheduling/output backpressure need measurement before further changes.
-3. Decide the strict redundancy policy: incomplete selected coverage fails completion, but missing backups currently appear in the report without failing completion. Investigate the two final backup refreshes.
-4. Consider lifecycle streaming: discovery currently requires a complete REST scan (about 35–38 seconds here), plus the interval between scans. Newly listed markets are not subscribed instantaneously.
-5. Update broader performance/design documentation after the next verification round.
+The resumed implementation replaces full-universe health scans with incremental coverage counters; routine healthy reports copy no symbol lists. Configured backups are now required for successful completion. Engine-approved planned refreshes preserve an eligible alternate, with one-replica mode explicitly accepting a temporary gap. Whole-socket recycling is postponed when it would remove a last usable copy. Timed runs stop starting elective refreshes in their final five seconds, while retaining strict completion checks. Full-universe comparisons run outside the orderbook processor and only affected shards reconcile.
 
-The observed production feed omitted exchange clocks. Cross-source catch-up and historical losslessness cannot be proven from those frames. Recovery and coverage reporting do not guarantee zero future outages. Further latency and continuous coverage work remains unfinished.
+Two existing sockets also carry redundant regular-market lifecycle subscriptions. A bounded resolver coalesces notifications and checks live/MVE status over REST outside the book engine. Full scans still recover missed notifications. An overlay prevents scans from reversing newer targeted observations. Live testing discovered that zero request IDs are omitted from Kalshi acknowledgements, so lifecycle uses positive IDs.
+
+The previous commit passed both Linux and Windows CI. The resumed local suite passes 57 tests, formatting, Clippy, and release builds. See [final validation](FINAL_VALIDATION.md) for fresh full-market and independent book checks.
+
+The observed production feed omitted exchange clocks. Cross-source catch-up and historical losslessness cannot be proven from those frames. Recovery and coverage reporting do not guarantee zero future outages. A real post-maintenance experiment remains unavailable until an actual exchange closure/reopening; its runner and simulated transition checks are implemented.

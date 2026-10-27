@@ -1,0 +1,10 @@
+{
+  "method": "Independent Python Decimal reconstruction directly from public JSON wire frames; no production decoder or book code used.",
+  "frames": 190540,
+  "deltas": 190467,
+  "snapshot_checks": 70,
+  "clocked_market_frames": 0,
+  "sequence_gaps": [],
+  "snapshot_mismatches": 0,
+  "cases": []
+}

@@ -25,7 +25,7 @@ On this Windows machine, a project-local Rust toolchain has been installed for U
 .\scripts\run-wsl.ps1
 ```
 
-Run the launcher from this repository directory. It records continuously on native Linux storage and prints unique archive and coverage-report paths. See [native storage, measured latency, and remaining work](docs/NATIVE_LATENCY.md).
+Run the launcher from this repository directory. It records continuously on native Linux storage and prints unique archive and coverage-report paths. See [native storage and measured latency](docs/NATIVE_LATENCY.md).
 
 Windows PowerShell consumes a bare `--` when calling scripts. The wrapper restores it before collector arguments in `cargo run`. To preserve the boundary explicitly, quote it: `.\scripts\cargo-wsl.ps1 run --release --bin collector '--' --help`. This also distinguishes collector help from Cargo help.
 
@@ -33,7 +33,7 @@ When using WSL, private-key paths must use Linux syntax, for example `/mnt/c/Use
 
 ## Behavior
 
-- Paginate `/markets?status=open&mve_filter=exclude`; defensively filter MVE metadata too. Reconcile the complete universe every 60 seconds. Failed scans retain the previous universe rather than unsubscribing from a partial response.
+- Paginate `/markets?status=open&mve_filter=exclude`; defensively filter MVE metadata too. Use redundant lifecycle subscriptions for targeted live-market lookups, and reconcile the complete universe every 60 seconds. Failed scans retain the previous universe rather than unsubscribing from a partial response.
 - Keep existing symbol assignments stable and cap each shard at 2,000 markets by default. Each shard has two independent WebSockets and private books. New markets fill available slots; closed markets are removed. Connection starts are paced at two per second, with a default 160-socket budget and a shared cooldown after HTTP 429. Exceeding the budget fails explicitly with configuration guidance; no markets are silently skipped.
 - At startup, open one connection per shard before its backups, so market coverage grows faster at the same safe connection rate. This prioritizes broad initial coverage; each shard initially has one copy until its backup starts. Discovery uses gzip responses and slows future REST page requests after throttling. A complete paginated discovery scan still precedes subscriptions.
 - Print coverage percentage, unique output updates per second, cumulative record counts, source switches, and engine-queue delay every five seconds. `ready` counts markets with an initialized selected book, not two verified replicas. Startup logs estimate the paced first-copy and total connection ramps; network handshakes and snapshots can take longer. Duplicate backup updates maintain private books and intentionally do not double the output count.
@@ -42,9 +42,9 @@ When using WSL, private-key paths must use Linux syntax, for example `/mnt/c/Use
 - Emit an initial snapshot, a snapshot every minute for each available book, and a snapshot at every source switch or same-source reset. Only one replica emits deltas per symbol. When the feed supplies exchange clocks, a failover candidate must have reached the last emitted clock position; otherwise output pauses until it catches up. Clockless feeds reset with a snapshot selected from an independently maintained replica; cross-connection catch-up cannot be proven in that case.
 - Allow a primary to catch up for a configurable grace period before treating a backup update as evidence of a stall. This prevents ordinary duplicates after a quiet period from causing source churn. Captured event queues drain before stall decisions.
 - Track multiple deltas at the same exchange clock using an ordinal. Clocks can skip values; only subscription sequences require contiguity. A clock regression causes all replicas of that market to be rebuilt.
-- Monitor symbols for long silence and a fall below 10% of their historical update rate. A symbol with at least ten updates/minute of baseline activity is eligible for the rate check. Repairs unsubscribe and resubscribe with an ACK between steps, conservatively and with a cooldown. Quiet-market timers are staggered across replicas.
+- Monitor symbols for long silence and a fall below 10% of their historical update rate. A symbol with at least ten updates/minute of baseline activity is eligible for the rate check. Repairs unsubscribe and resubscribe with an ACK between steps, conservatively and with a cooldown. Planned symbol refreshes and socket recycling obtain permission from the book engine; with multiple replicas, they are deferred unless another caught-up book remains. Quiet-market timers are staggered across replicas.
 - Send WebSocket pings, monitor transport activity, and recycle complete connections on staggered schedules (30 minutes for the first replica by default). Independent books and source-switch snapshots preserve a usable stream during recovery.
-- Bound market-data and output queues. Backpressure is visible through queue-depth/processing-delay logs; sustained ingestion congestion forces a resnapshot rather than silently dropping an event.
+- Bound market-data and output queues. Health counters update incrementally rather than scanning the full universe. The coverage report names every missing market and missing backup; completion fails if either remains or discovery is stale. Backpressure is visible through queue-depth/processing-delay logs; sustained ingestion congestion forces a resnapshot rather than silently dropping an event.
 
 `collector --help` documents every setting. Useful overrides:
 
@@ -60,7 +60,7 @@ cargo run --release --bin collector -- --symbols EXAMPLE --run-secs 140 \
   --output data/recycle-01.sbe --no-stdout
 ```
 
-The run timer starts after initial discovery. The allow-list uses the REST ticker filter for fast smoke tests and is for testing only; omit `--symbols` for the complete challenge. Newly listed or closed markets are noticed within the discovery interval plus scan/network time. Live exchange access is needed for authentication and real data; automated tests use a local mock server.
+The run timer starts after initial discovery. The allow-list uses the REST ticker filter for fast smoke tests and is for testing only; omit `--symbols` for the complete challenge. Lifecycle notifications trigger coalesced targeted REST checks on two existing sockets. Missed notifications recover through periodic full scans, which take the discovery interval plus scan/network time. Live exchange access is needed for authentication and real data; automated tests use a local mock server.
 
 ## Output and timestamps
 
@@ -79,6 +79,8 @@ The latency report prefers `(market, exchange clock, ordinal, side, price, delta
 
 ## Tests and deployment
 
+See [final implementation, live results, and unresolved evidence](docs/FINAL_VALIDATION.md) for the latest validation.
+
 For measured startup costs, the subscription-processing optimization, full-universe throughput, and remaining checkpoint pauses, see [performance validation](docs/PERFORMANCE.md).
 
 ```sh
@@ -87,7 +89,7 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --all-targets --locked
 ```
 
-The 50 automated tests (48 on Windows) cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify silent-primary failover through the complete pipeline, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
+The 57 automated tests (55 on Windows) cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify silent-primary failover through the complete pipeline, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
 
 ## Independent live checks and optional experiments
 

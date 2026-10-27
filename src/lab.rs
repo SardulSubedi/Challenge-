@@ -109,6 +109,35 @@ pub struct Mismatch {
     pub symbol: String,
     pub different_levels: usize,
     pub at: String,
+    pub seq: Option<u64>,
+    pub clock: Option<u64>,
+    pub levels: Vec<LevelDifference>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LevelDifference {
+    pub side: u8,
+    pub price: i64,
+    pub reconstructed_quantity: Option<i64>,
+    pub snapshot_quantity: Option<i64>,
+}
+
+fn level_differences(expected: &ReferenceBook, actual: &ReferenceBook) -> Vec<LevelDifference> {
+    expected
+        .0
+        .keys()
+        .chain(actual.0.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|key| expected.0.get(*key) != actual.0.get(*key))
+        .take(20)
+        .map(|&(side, price)| LevelDifference {
+            side,
+            price,
+            reconstructed_quantity: expected.0.get(&(side, price)).copied(),
+            snapshot_quantity: actual.0.get(&(side, price)).copied(),
+        })
+        .collect()
 }
 
 pub struct VerifyOptions {
@@ -183,6 +212,7 @@ pub async fn verify(
                     let received_at = Utc::now();
                     match incoming.context("verification socket ended")?? {
                         Message::Text(text) => {
+                            tracing::trace!(frame = text.as_str(), "verification exchange frame");
                             let frame = exchange.decode(text.as_str(), received_at)?;
                             sequences.check(frame.sid, frame.seq)?;
                             match frame.payload {
@@ -198,7 +228,7 @@ pub async fn verify(
                                             report.snapshot_checks += 1;
                                             if *expected != actual {
                                                 report.snapshot_mismatches += 1;
-                                                if report.mismatches.len() < 10 { report.mismatches.push(Mismatch { symbol: data.symbol.clone(), different_levels: expected.differences(&actual), at: received_at.to_rfc3339() }); }
+                                                if report.mismatches.len() < 10 { report.mismatches.push(Mismatch { symbol: data.symbol.clone(), different_levels: expected.differences(&actual), at: received_at.to_rfc3339(), seq: frame.seq, clock: data.clock, levels: level_differences(expected, &actual) }); }
                                             }
                                         } else { report.initial_snapshots += 1; }
                                         pending.remove(&data.symbol);

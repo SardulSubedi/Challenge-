@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod book;
 pub mod config;
+mod coverage;
 pub mod engine;
 pub mod exchange;
 pub mod experiments;
@@ -13,6 +14,7 @@ pub mod runtime;
 pub mod schedule;
 pub mod sharding;
 pub mod transport;
+mod universe;
 pub mod util;
 pub mod worker;
 

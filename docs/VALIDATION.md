@@ -2,11 +2,13 @@
 
 Validated locally on October 26–27, 2026 using stable Rust 1.99.1 in Ubuntu-24.04/WSL on the developer's Windows machine. Automated tests use local servers and do not require live credentials.
 
+For the latest implementation and live evidence, including retained failed checks, see [final validation](FINAL_VALIDATION.md).
+
 ## Automated checks
 
 - `cargo fmt --all -- --check`
 - `cargo clippy --all-targets --locked -- -D warnings`
-- `cargo test --all-targets --locked`: 43 tests (29 unit tests, fourteen integration tests; Windows excludes the Unix signal test).
+- `cargo test --all-targets --locked`: 57 tests (38 unit tests, eighteen network integration tests, and one generic-exchange integration test; Windows excludes the Unix signal and Linux device-error tests).
 - `cargo build --release --locked --bins`
 
 Coverage includes exact six-place arithmetic, quantity underflow/overflow handling, both supported signing algorithms, YES/NO normalization, per-subscription continuity, redundant-book deduplication, snapshot-first failover, repeated exchange clocks, clock resets, clockless timing, quiet-market duplicate grace, stable bounded sharding, global cooldown after throttling, connection-budget rejection, REST pagination/MVE exclusion, dynamic add/remove acknowledgements, reconnect after injected sequence loss, aligned SBE round trips, overwrite protection, and Unix SIGINT with byte-for-byte stdout/archive comparison.

@@ -1,0 +1,26 @@
+[
+  {
+    "path": "/var/tmp/voluntas-challenge/data/capture-20261027T170540-357.sbe",
+    "exit_code": 0,
+    "bytes": 536870912,
+    "deltas": 3797035,
+    "snapshots": 589758,
+    "symbols": 146889
+  },
+  {
+    "path": "/var/tmp/voluntas-challenge/data/capture-20261027T170548-501.sbe",
+    "exit_code": 0,
+    "bytes": 134217728,
+    "deltas": 72569,
+    "snapshots": 4,
+    "symbols": 2
+  },
+  {
+    "path": "/var/tmp/voluntas-challenge/data/reference-20261027T170600.sbe",
+    "exit_code": 0,
+    "bytes": 67108864,
+    "deltas": 190467,
+    "snapshots": 72,
+    "symbols": 2
+  }
+]
