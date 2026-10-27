@@ -2,7 +2,33 @@
 //! messages written by the
 //! [`AlignedSbeWriter`](crate::util::aligned_sbe_writer::AlignedSbeWriter)
 
-use std::{fs::File, marker::PhantomData, os::unix::fs::FileExt, path::Path};
+#[cfg(unix)]
+use std::os::unix::fs::FileExt;
+use std::{fs::File, marker::PhantomData, path::Path};
+
+// Keep the template's positional-read behavior on native Windows as well as Unix.
+#[cfg(windows)]
+trait ReadExactAt {
+    fn read_exact_at(&self, buffer: &mut [u8], offset: u64) -> std::io::Result<()>;
+}
+#[cfg(windows)]
+impl ReadExactAt for File {
+    fn read_exact_at(&self, mut buffer: &mut [u8], mut offset: u64) -> std::io::Result<()> {
+        use std::os::windows::fs::FileExt;
+        while !buffer.is_empty() {
+            match self.seek_read(buffer, offset) {
+                Ok(0) => return Err(std::io::ErrorKind::UnexpectedEof.into()),
+                Ok(n) => {
+                    buffer = &mut buffer[n..];
+                    offset += n as u64;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+}
 
 use anyhow::Context;
 use crossbeam::channel::{Receiver, Sender, bounded};

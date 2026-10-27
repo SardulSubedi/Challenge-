@@ -1,1 +1,12 @@
 /target/
+/work/
+/.env
+/.env.*
+!/.env.example
+/.secrets/
+/data/
+*.pem
+*.key
+*.sbe
+*.jsonl
+!tests/fixtures/*.jsonl
