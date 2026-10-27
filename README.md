@@ -25,6 +25,8 @@ On this Windows machine, a project-local Rust toolchain has been installed for U
 .\scripts\cargo-wsl.ps1 run --release --bin collector -- --output data/session-03.sbe --no-stdout
 ```
 
+Windows PowerShell consumes a bare `--` when calling scripts. The wrapper restores it before collector arguments in `cargo run`. To preserve the boundary explicitly, quote it: `.\scripts\cargo-wsl.ps1 run --release --bin collector '--' --help`. This also distinguishes collector help from Cargo help.
+
 When using WSL, private-key paths must use Linux syntax, for example `/mnt/c/Users/you/Documents/your-key.txt`. Native Windows builds accept normal Windows paths. The template reader has a small portability adaptation for Windows positional file reads.
 
 ## Behavior
