@@ -2,13 +2,17 @@ use std::{
     fs::OpenOptions,
     io::{BufWriter, Write},
     path::PathBuf,
+    sync::Arc,
+    time::Instant,
 };
 
 use anyhow::{Context, Result};
 use tokio::sync::mpsc;
 
 use crate::{
+    engine::Coverage,
     latency::Observation,
+    metrics::Pipeline,
     util::{
         AlignedSbeWriter,
         dtos::{
@@ -27,6 +31,19 @@ pub enum Record {
 }
 
 impl Record {
+    pub fn encode_into(&self, buffer: &mut Vec<u8>) -> Result<()> {
+        let length = match self {
+            Self::Snapshot(m) => m.encoded_length_with_header()?,
+            Self::Delta(m) => m.encoded_length_with_header()?,
+        };
+        buffer.resize(length, 0);
+        let written = match self {
+            Self::Snapshot(m) => m.encode(buffer)?,
+            Self::Delta(m) => m.encode(buffer)?,
+        };
+        anyhow::ensure!(written == length, "SBE encoded length mismatch");
+        Ok(())
+    }
     pub fn encode(&self) -> Result<Vec<u8>> {
         match self {
             Self::Snapshot(m) => m.to_bytes(),
@@ -37,15 +54,32 @@ impl Record {
 
 pub enum Output {
     Record(Record),
+    TimedRecord {
+        record: Record,
+        received: Instant,
+        queued: Instant,
+    },
+    Coverage(CoverageStatus),
     Observation(Observation),
     Flush,
     Checkpoint,
+}
+
+#[derive(serde::Serialize)]
+pub struct CoverageStatus {
+    pub observed_at: String,
+    pub discovery_age_secs: u64,
+    pub discovery_fresh: bool,
+    pub stopping: bool,
+    pub coverage: Coverage,
 }
 
 pub struct Sink {
     archive: Option<AlignedSbeWriter>,
     stdout: bool,
     latency: Option<BufWriter<std::fs::File>>,
+    coverage_path: Option<PathBuf>,
+    pub metrics: Arc<Pipeline>,
 }
 
 impl Sink {
@@ -83,17 +117,55 @@ impl Sink {
             archive,
             stdout,
             latency,
+            coverage_path: None,
+            metrics: Arc::new(Pipeline::default()),
         })
+    }
+
+    pub fn with_coverage(mut self, path: Option<PathBuf>) -> Result<Self> {
+        if let Some(path) = &path {
+            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                std::fs::create_dir_all(parent)?;
+            }
+            OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .with_context(|| {
+                    format!(
+                        "coverage report {} already exists or cannot be created",
+                        path.display()
+                    )
+                })?;
+        }
+        self.coverage_path = path;
+        Ok(self)
     }
 
     /// A dedicated blocking thread owns output. Bounded queues propagate pressure; never silently drop data.
     pub fn run(mut self, mut rx: mpsc::Receiver<Output>) -> Result<()> {
         let stdout = std::io::stdout();
         let mut stdout = BufWriter::with_capacity(64 * 1024, stdout.lock());
+        let mut encoded = Vec::with_capacity(4096);
         let result: Result<()> = (|| {
             while let Some(item) = rx.blocking_recv() {
                 match item {
-                    Output::Record(record) => {
+                    Output::Record(_) | Output::TimedRecord { .. } => {
+                        let (record, timing) = match item {
+                            Output::Record(record) => (record, None),
+                            Output::TimedRecord {
+                                record,
+                                received,
+                                queued,
+                            } => (record, Some((received, queued))),
+                            _ => unreachable!(),
+                        };
+                        if let Some((_, queued)) = timing {
+                            self.metrics
+                                .output_queue
+                                .record(queued.elapsed().as_micros().min(u64::MAX as u128) as u64);
+                        }
+                        let delta = matches!(&record, Record::Delta(_));
                         // Write archive first so a broken stdout does not discard the current archived record.
                         if let Some(archive) = &mut self.archive {
                             match &record {
@@ -102,8 +174,28 @@ impl Sink {
                             }
                         }
                         if self.stdout {
-                            stdout.write_all(&record.encode()?)?;
+                            record.encode_into(&mut encoded)?;
+                            stdout.write_all(&encoded)?;
                             stdout.flush()?;
+                        }
+                        if delta && let Some((received, _)) = timing {
+                            self.metrics.receive_to_sink.record(received.elapsed().as_micros().min(u64::MAX as u128) as u64);
+                        }
+                    }
+                    Output::Coverage(status) => {
+                        if let Some(path) = &self.coverage_path {
+                            let parent = path
+                                .parent()
+                                .filter(|p| !p.as_os_str().is_empty())
+                                .unwrap_or(std::path::Path::new("."));
+                            let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+                            {
+                                let mut buffered =
+                                    BufWriter::with_capacity(64 * 1024, &mut temporary);
+                                serde_json::to_writer(&mut buffered, &status)?;
+                                buffered.flush()?;
+                            }
+                            temporary.persist(path)?;
                         }
                     }
                     Output::Observation(observation) => {
@@ -113,6 +205,9 @@ impl Sink {
                         }
                     }
                     Output::Flush => {
+                        if let Some(archive) = &mut self.archive {
+                            archive.check_write()?;
+                        }
                         // stdout is unpadded SBE; archive is chunk-aligned. Avoid padding a 64 MiB archive every second.
                         stdout.flush()?;
                         if let Some(log) = &mut self.latency {
@@ -121,7 +216,7 @@ impl Sink {
                     }
                     Output::Checkpoint => {
                         if let Some(archive) = &mut self.archive {
-                            archive.flush()?;
+                            archive.checkpoint()?;
                         }
                     }
                 }

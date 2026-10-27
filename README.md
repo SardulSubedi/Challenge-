@@ -22,8 +22,10 @@ On this Windows machine, a project-local Rust toolchain has been installed for U
 
 ```powershell
 .\scripts\cargo-wsl.ps1 test --all-targets --locked
-.\scripts\cargo-wsl.ps1 run --release --bin collector -- --output data/session-03.sbe --no-stdout
+.\scripts\run-wsl.ps1
 ```
+
+Run the launcher from this repository directory. It records continuously on native Linux storage and prints unique archive and coverage-report paths. See [native storage, measured latency, and remaining work](docs/NATIVE_LATENCY.md).
 
 Windows PowerShell consumes a bare `--` when calling scripts. The wrapper restores it before collector arguments in `cargo run`. To preserve the boundary explicitly, quote it: `.\scripts\cargo-wsl.ps1 run --release --bin collector '--' --help`. This also distinguishes collector help from Cargo help.
 
@@ -58,7 +60,7 @@ cargo run --release --bin collector -- --symbols EXAMPLE --run-secs 140 \
   --output data/recycle-01.sbe --no-stdout
 ```
 
-The run timer starts after initial discovery. The allow-list uses the REST ticker filter for fast smoke tests and is for testing only; omit `--symbols` for the complete challenge. The discovery interval bounds how quickly newly listed or closed markets are noticed. Live exchange access is needed for authentication and real data; automated tests use a local mock server.
+The run timer starts after initial discovery. The allow-list uses the REST ticker filter for fast smoke tests and is for testing only; omit `--symbols` for the complete challenge. Newly listed or closed markets are noticed within the discovery interval plus scan/network time. Live exchange access is needed for authentication and real data; automated tests use a local mock server.
 
 ## Output and timestamps
 
@@ -66,7 +68,7 @@ The upstream YAML schema and generated DTOs are retained. `SnapshotDomain` and `
 
 Receive time is captured immediately after reading a WebSocket frame, before JSON decoding or queueing. Delta `backtest_timestamp` is that local receive time; exchange time comes from the feed. Snapshot `received_at` is receive time for an incoming snapshot, or local emission time for a scheduled/failover snapshot. Such a snapshot's exchange timestamp is its last observed exchange update time. Missing exchange timestamps use Unix epoch (zero), never a fabricated local exchange time. Keep the host clock synchronized.
 
-Archives are flushed at minute checkpoints and shutdown. The required writer pads each partial chunk to 64 MiB, so a quiet archived run can use roughly 64 MiB per minute. A crash can lose the current buffered chunk; a process supervisor cannot recover historical updates the exchange does not replay. This is a collection challenge, not a durable production feed recorder. See [design and limitations](docs/DESIGN.md).
+Archives queue bounded background writes at minute checkpoints and wait for completion at shutdown; slow writes can still cause backpressure. The required writer pads each partial chunk to 64 MiB, so a quiet archived run can use roughly 64 MiB per minute. A crash can lose the current buffered chunk; a process supervisor cannot recover historical updates the exchange does not replay. This is a collection challenge, not a durable production feed recorder. See [design and limitations](docs/DESIGN.md).
 
 ```sh
 cargo run --bin inspect-sbe -- data/smoke-01.sbe
@@ -85,7 +87,7 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --all-targets --locked
 ```
 
-The 43 automated tests cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify silent-primary failover through the complete pipeline, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
+The 50 automated tests (48 on Windows) cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify silent-primary failover through the complete pipeline, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
 
 ## Independent live checks and optional experiments
 

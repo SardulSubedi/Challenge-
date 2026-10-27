@@ -53,6 +53,9 @@ pub struct Config {
     /// Receive timing observations for cross-connection latency analysis.
     #[arg(long)]
     pub latency_log: Option<PathBuf>,
+    /// Atomically replaced JSON status with exact missing/under-replicated symbols.
+    #[arg(long)]
+    pub coverage_report: Option<PathBuf>,
     /// Optional explicit market allow-list for smoke tests. Default: all live regular markets.
     #[arg(long, value_delimiter = ',')]
     pub symbols: Vec<String>,

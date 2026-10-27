@@ -33,13 +33,18 @@ impl Activity {
         self.count += 1;
     }
     pub fn repair_reason(&mut self, now: Instant, quiet: Duration) -> Option<&'static str> {
+        if !self.initialized
+            && now.duration_since(self.created) >= Duration::from_secs(10)
+            && now.duration_since(self.last_repair) >= Duration::from_secs(10)
+        {
+            self.last_repair = now;
+            return Some("initial snapshot missing");
+        }
         if now.duration_since(self.last_repair) < Duration::from_secs(60) {
             return None;
         }
         let mut reason = None;
-        if !self.initialized && now.duration_since(self.created) >= Duration::from_secs(30) {
-            reason = Some("initial snapshot missing");
-        } else if now.duration_since(self.last) >= quiet {
+        if now.duration_since(self.last) >= quiet {
             reason = Some("symbol quiet timeout");
         }
         if now.duration_since(self.window) >= Duration::from_secs(60) {
@@ -66,6 +71,28 @@ impl Activity {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn missing_initial_snapshot_is_repaired_without_waiting_for_quiet_cooldown() {
+        let now = Instant::now();
+        let mut activity = Activity::new(now);
+        assert_eq!(
+            activity.repair_reason(now + Duration::from_secs(9), Duration::from_secs(300)),
+            None
+        );
+        assert_eq!(
+            activity.repair_reason(now + Duration::from_secs(10), Duration::from_secs(300)),
+            Some("initial snapshot missing")
+        );
+        assert_eq!(
+            activity.repair_reason(now + Duration::from_secs(11), Duration::from_secs(300)),
+            None
+        );
+        activity.snapshot(now + Duration::from_secs(12));
+        assert_eq!(
+            activity.repair_reason(now + Duration::from_secs(20), Duration::from_secs(300)),
+            None
+        );
+    }
     #[test]
     fn quiet_and_rate_drop_are_cooled_down() {
         let n = Instant::now();

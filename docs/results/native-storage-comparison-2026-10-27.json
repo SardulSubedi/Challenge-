@@ -1,0 +1,30 @@
+[
+  {
+    "filesystem": "linux",
+    "round": 1,
+    "bytes": 67108864,
+    "write_ms": 204.654,
+    "write_and_sync_ms": 265.393
+  },
+  {
+    "filesystem": "windows",
+    "round": 1,
+    "bytes": 67108864,
+    "write_ms": 830.179,
+    "write_and_sync_ms": 916.255
+  },
+  {
+    "filesystem": "windows",
+    "round": 2,
+    "bytes": 67108864,
+    "write_ms": 927.506,
+    "write_and_sync_ms": 986.021
+  },
+  {
+    "filesystem": "linux",
+    "round": 2,
+    "bytes": 67108864,
+    "write_ms": 197.311,
+    "write_and_sync_ms": 267.447
+  }
+]

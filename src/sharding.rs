@@ -38,6 +38,27 @@ impl Shards {
             self.assignments[shard].insert(symbol.clone());
         }
     }
+    pub fn change_symbols(&mut self, added: &BTreeSet<String>, removed: &BTreeSet<String>) {
+        for symbol in removed {
+            if let Some(shard) = self.assignments.iter_mut().find(|s| s.contains(symbol)) {
+                shard.remove(symbol);
+            }
+        }
+        for symbol in added {
+            let shard = self
+                .assignments
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.len() < self.capacity)
+                .min_by_key(|(i, s)| (s.len(), *i))
+                .map(|(i, _)| i)
+                .unwrap_or_else(|| {
+                    self.assignments.push(BTreeSet::new());
+                    self.assignments.len() - 1
+                });
+            self.assignments[shard].insert(symbol.clone());
+        }
+    }
 }
 
 #[cfg(test)]

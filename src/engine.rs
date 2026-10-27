@@ -15,6 +15,17 @@ use crate::{
 
 pub type Source = usize;
 
+#[derive(Default, Debug, serde::Serialize)]
+pub struct Coverage {
+    pub markets: usize,
+    pub ready: usize,
+    pub redundant: usize,
+    pub caught_up_redundant: usize,
+    pub clocked_markets: usize,
+    pub missing: Vec<String>,
+    pub under_replicated: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Position {
     pub clock: u64,
@@ -83,8 +94,59 @@ impl Engine {
     pub fn ready_markets(&self) -> usize {
         self.markets.values().filter(|m| m.active.is_some()).count()
     }
+    pub fn change_symbols(&mut self, added: &BTreeSet<String>, removed: &BTreeSet<String>) {
+        for symbol in removed {
+            self.markets.remove(symbol);
+            self.pending_lag.remove(symbol);
+        }
+        for symbol in added {
+            self.markets.entry(symbol.clone()).or_default();
+        }
+    }
     pub fn market_count(&self) -> usize {
         self.markets.len()
+    }
+
+    pub fn coverage(&self, replicas: usize) -> Coverage {
+        let mut result = Coverage {
+            markets: self.markets.len(),
+            ..Default::default()
+        };
+        for (symbol, market) in &self.markets {
+            let copies = market
+                .replicas
+                .values()
+                .filter(|r| caught_up(r.position, market.floor))
+                .count();
+            if let Some(active) = market.active {
+                result.ready += 1;
+                if market.replicas[&active].position.is_some() {
+                    result.clocked_markets += 1;
+                }
+            } else {
+                result.missing.push(symbol.clone());
+            }
+            if copies >= replicas {
+                result.caught_up_redundant += 1;
+            }
+            if market.replicas.len() >= replicas {
+                result.redundant += 1;
+            } else {
+                result.under_replicated.push(symbol.clone());
+            }
+        }
+        result
+    }
+
+    pub fn snapshot_for(&mut self, symbol: &str, timestamp: DateTime<Utc>) -> Option<Record> {
+        let market = self.markets.get(symbol)?;
+        let replica = market.replicas.get(&market.active?)?;
+        self.snapshots_emitted += 1;
+        Some(Record::Snapshot(replica.book.snapshot(
+            symbol,
+            timestamp,
+            replica.exchange_at,
+        )))
     }
 
     pub fn ingest(

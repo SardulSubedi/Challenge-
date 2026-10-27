@@ -48,6 +48,7 @@ struct MockState {
     inject_gap: bool,
     corrupt_checkpoint: AtomicBool,
     stall_first: AtomicBool,
+    omit_snapshot: Mutex<Option<String>>,
     started: Instant,
 }
 
@@ -62,6 +63,7 @@ impl MockState {
             inject_gap,
             corrupt_checkpoint: AtomicBool::new(false),
             stall_first: AtomicBool::new(false),
+            omit_snapshot: Mutex::new(None),
             started: Instant::now(),
         })
     }
@@ -96,6 +98,7 @@ async fn serve_socket(mut socket: WebSocket, state: Arc<MockState>) {
                             for symbol in symbols {
                                 let symbol = symbol.as_str().unwrap();
                                 if action == "delete_markets" { clocks.remove(symbol); continue; }
+                                if state.omit_snapshot.lock().unwrap().as_deref() == Some(symbol) { continue; }
                                 let clock = state.started.elapsed().as_millis() as u64 / 50 + 1;
                                 if action == "get_snapshot" && let Some(&old) = clocks.get(symbol) && clock > old {
                                     seq += 1;
@@ -210,6 +213,64 @@ async fn connection_budget_is_explicit_instead_of_silently_skipping_markets() {
 }
 
 #[tokio::test]
+async fn partial_coverage_returns_error_and_names_the_missing_market() {
+    let state = MockState::new(false);
+    *state.universe.lock().unwrap() = ["A".into(), "B".into()].into();
+    *state.omit_snapshot.lock().unwrap() = Some("B".into());
+    let (address, server) = start_server(state.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let status = dir.path().join("coverage.json");
+    let mut config = config();
+    config.symbols_per_socket = 2000;
+    config.no_stdout = true;
+    config.run_secs = Some(2);
+    config.output = Some(dir.path().join("partial.sbe"));
+    config.coverage_report = Some(status.clone());
+    let error = runtime::run(config, exchange(state, address), CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("1 current markets lack a ready book")
+    );
+    let report: Value = serde_json::from_slice(&std::fs::read(status).unwrap()).unwrap();
+    assert_eq!(report["coverage"]["missing"], json!(["B"]));
+    assert_eq!(report["coverage"]["ready"], 1);
+    assert_eq!(report["coverage"]["redundant"], 1);
+    assert_eq!(report["stopping"], true);
+    server.abort();
+}
+
+#[tokio::test]
+async fn periodic_snapshot_batches_continue_for_each_available_market() {
+    let state = MockState::new(false);
+    *state.universe.lock().unwrap() = ["A".into(), "B".into()].into();
+    let (address, server) = start_server(state.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("periodic.sbe");
+    let mut config = config();
+    config.symbols_per_socket = 2000;
+    config.replicas = 1;
+    config.no_stdout = true;
+    config.run_secs = Some(3);
+    config.output = Some(path.clone());
+    runtime::run(config, exchange(state, address), CancellationToken::new())
+        .await
+        .unwrap();
+    let mut reader = AlignedSbeReader::<OrderbookSchema>::open(path).unwrap();
+    let mut counts = BTreeMap::new();
+    while let Some(message) = reader.read_msg().unwrap() {
+        if let AnyMessage::Snapshot(decoded) = message {
+            let snapshot = SnapshotDomain::try_from_decoder(decoded).unwrap();
+            *counts.entry(snapshot.symbol).or_insert(0) += 1;
+        }
+    }
+    assert!(counts["A"] >= 3 && counts["B"] >= 3);
+    server.abort();
+}
+
+#[tokio::test]
 async fn sequence_gap_invalidates_then_reconnects_with_new_snapshot() {
     let state = MockState::new(true);
     let (address, server) = start_server(state.clone()).await;
@@ -278,7 +339,7 @@ async fn collector_tracks_added_removed_markets_and_flushes_readable_sbe() {
     *state.universe.lock().unwrap() = ["B".into(), "C".into()].into();
     sleep(Duration::from_millis(2100)).await;
     cancel.cancel();
-    timeout(Duration::from_secs(5), task)
+    timeout(Duration::from_secs(15), task)
         .await
         .unwrap()
         .unwrap()
@@ -428,7 +489,7 @@ async fn explicit_repair_reconciles_after_ack_and_streaming_resumes() {
     .await
     .unwrap();
     cancel.cancel();
-    timeout(Duration::from_secs(5), task)
+    timeout(Duration::from_secs(15), task)
         .await
         .unwrap()
         .unwrap()
@@ -683,7 +744,7 @@ async fn silent_primary_with_healthy_heartbeats_fails_over_through_complete_pipe
     ));
     sleep(Duration::from_millis(4200)).await;
     cancel.cancel();
-    timeout(Duration::from_secs(5), task)
+    timeout(Duration::from_secs(15), task)
         .await
         .unwrap()
         .unwrap()

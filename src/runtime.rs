@@ -17,7 +17,8 @@ use crate::{
     config::Config,
     engine::{Engine, Outcome},
     exchange::Exchange,
-    output::{Output, Sink},
+    output::{CoverageStatus, Output, Record, Sink},
+    schedule::Snapshots,
     sharding::Shards,
     worker::{ConnectGate, Event, Worker},
 };
@@ -47,7 +48,9 @@ pub async fn run(
         config.output.clone(),
         !config.no_stdout,
         config.latency_log.clone(),
-    )?;
+    )?
+    .with_coverage(config.coverage_report.clone())?;
+    let pipeline = sink.metrics.clone();
     let timer = config.run_secs.map(|secs| {
         let cancel = cancel.clone();
         tokio::spawn(async move {
@@ -58,7 +61,8 @@ pub async fn run(
     let (output_tx, output_rx) = mpsc::channel(config.queue_capacity);
     let mut writer = tokio::task::spawn_blocking(move || sink.run(output_rx));
     let (events_tx, mut events_rx) = mpsc::channel(config.queue_capacity);
-    let (universe_tx, mut universe_rx) = watch::channel(initial.clone());
+    let mut last_discovery = Instant::now();
+    let (universe_tx, mut universe_rx) = watch::channel((initial.clone(), last_discovery));
     let discovery_config = config.clone();
     let discovery_exchange = exchange.clone();
     let discovery_cancel = cancel.clone();
@@ -68,7 +72,8 @@ pub async fn run(
             let result = tokio::select! { _ = discovery_cancel.cancelled() => break, result = discovery_exchange.discover() => result };
             match result {
                 Ok(symbols) => {
-                    universe_tx.send_replace(filter_symbols(symbols, &discovery_config));
+                    universe_tx
+                        .send_replace((filter_symbols(symbols, &discovery_config), Instant::now()));
                 }
                 Err(error) => {
                     tracing::warn!(%error, "discovery failed; retaining last complete universe")
@@ -85,20 +90,24 @@ pub async fn run(
     let mut repair_txs = Vec::<mpsc::UnboundedSender<String>>::new();
     let mut workers = JoinSet::new();
     let mut universe = initial;
+    engine.set_symbols(&universe);
+    shards.reconcile(&universe);
     let mut needs_reconcile = true;
     let mut shutdown = false;
     let mut fatal = None;
     let mut writer_finished = false;
     let snapshot_period = Duration::from_secs(config.snapshot_secs);
-    let mut snapshots = interval_at(
+    let mut checkpoints = interval_at(
         tokio::time::Instant::now() + snapshot_period,
         snapshot_period,
     );
+    let mut snapshots = interval(Duration::from_millis(2));
+    let mut snapshot_schedule = Snapshots::new(snapshot_period);
     let mut flush = interval(Duration::from_secs(1));
     let mut health = interval(Duration::from_millis(250));
     health.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut metrics = interval(Duration::from_secs(5));
-    for interval in [&mut snapshots, &mut flush, &mut metrics] {
+    for interval in [&mut snapshots, &mut checkpoints, &mut flush, &mut metrics] {
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     }
     let mut max_queue_delay_us = 0i64;
@@ -108,8 +117,6 @@ pub async fn run(
 
     loop {
         if needs_reconcile && !shutdown {
-            engine.set_symbols(&universe);
-            shards.reconcile(&universe);
             if shards.assignments.len() * config.replicas > config.max_sockets {
                 fatal = Some(anyhow::anyhow!(
                     "market universe outgrew connection budget; increase --symbols-per-socket or --max-sockets"
@@ -180,6 +187,7 @@ pub async fn run(
             break;
         }
         let mut to_write = Vec::new();
+        let mut received = None;
         tokio::select! {
             _ = cancel.cancelled(), if !shutdown => {
                 shutdown = true;
@@ -197,8 +205,16 @@ pub async fn run(
             }
             changed = universe_rx.changed(), if !shutdown => {
                 if changed.is_ok() {
-                    let updated = universe_rx.borrow_and_update().clone();
-                    if updated != universe { universe = updated; needs_reconcile = true; }
+                    let (updated, completed) = universe_rx.borrow_and_update().clone();
+                    last_discovery = completed;
+                    if updated != universe {
+                        let added = updated.difference(&universe).cloned().collect();
+                        let removed = universe.difference(&updated).cloned().collect();
+                        engine.change_symbols(&added, &removed);
+                        shards.change_symbols(&added, &removed);
+                        for symbol in &removed { snapshot_schedule.remove(symbol); }
+                        universe = updated; needs_reconcile = true;
+                    }
                 }
                 else if !cancel.is_cancelled() { fatal = Some(anyhow::anyhow!("market discovery task stopped")); cancel.cancel(); shutdown = true; }
             }
@@ -207,7 +223,10 @@ pub async fn run(
                 let timestamp = Utc::now();
                 match event {
                     Event::Data { source, data, received_at, now: received_mono } => {
-                        max_queue_delay_us = max_queue_delay_us.max((timestamp - received_at).num_microseconds().unwrap_or(0));
+                        received = Some(received_mono);
+                        let delay = now.saturating_duration_since(received_mono).as_micros().min(i64::MAX as u128) as i64;
+                        max_queue_delay_us = max_queue_delay_us.max(delay);
+                        pipeline.engine_queue.record(delay as u64);
                         let Outcome { records, repairs, observation } = engine.ingest(source, data, received_at, received_mono);
                         to_write.extend(records.into_iter().map(Output::Record));
                         if config.latency_log.is_some() && let Some(o) = observation { to_write.push(Output::Observation(o)); }
@@ -219,7 +238,12 @@ pub async fn run(
                 }
             }
             _ = snapshots.tick(), if !shutdown => {
-                to_write.extend(engine.snapshots(Utc::now()).into_iter().map(Output::Record));
+                for symbol in snapshot_schedule.take_due(Instant::now(), 32) {
+                    if let Some(record) = engine.snapshot_for(&symbol, Utc::now()) { to_write.push(Output::Record(record)); }
+                    else { snapshot_schedule.retry(&symbol, Instant::now()); }
+                }
+            }
+            _ = checkpoints.tick(), if !shutdown => {
                 to_write.push(Output::Checkpoint);
             }
             _ = flush.tick(), if !shutdown => { to_write.push(Output::Flush); }
@@ -232,12 +256,31 @@ pub async fn run(
                 let now = Instant::now();
                 let elapsed = now.duration_since(metrics_at).as_secs_f64();
                 let updates_per_sec = (engine.deltas_emitted - last_deltas) as f64 / elapsed.max(0.001);
-                let ready = engine.ready_markets();
+                let coverage = engine.coverage(config.replicas);
+                let ready = coverage.ready;
+                let discovery_age_secs = last_discovery.elapsed().as_secs();
+                let discovery_fresh = discovery_age_secs <= config.discovery_secs.saturating_mul(3);
+                let engine_latency = pipeline.engine_queue.take();
+                let sink_latency = pipeline.receive_to_sink.take();
+                let output_latency = pipeline.output_queue.take();
                 let coverage_pct = ready as f64 * 100.0 / engine.market_count().max(1) as f64;
                 tracing::info!(markets = engine.market_count(), ready, coverage_pct = format_args!("{coverage_pct:.1}"),
                     updates_per_sec = format_args!("{updates_per_sec:.0}"), deltas = engine.deltas_emitted,
                     snapshots = engine.snapshots_emitted, failovers = engine.failovers, max_queue_delay_us,
-                    queue_depth = events_rx.len(), "collector health");
+                    redundant = coverage.redundant, caught_up_redundant = coverage.caught_up_redundant, clocked_markets = coverage.clocked_markets,
+                    missing = coverage.missing.len(), under_replicated = coverage.under_replicated.len(),
+                    discovery_age_secs, discovery_fresh,
+                    engine_p99_upper_us = engine_latency.p99_upper_us,
+                    sink_samples = sink_latency.samples, receive_to_sink_p50_upper_us = sink_latency.p50_upper_us,
+                    receive_to_sink_p99_upper_us = sink_latency.p99_upper_us, receive_to_sink_max_us = sink_latency.max_us,
+                    output_queue_max_us = output_latency.max_us,
+                    queue_depth = events_rx.len(), output_queue_depth = config.queue_capacity - output_tx.capacity(), "collector health");
+                if coverage_announced && (ready != engine.market_count() || !discovery_fresh) {
+                    tracing::error!(missing = coverage.missing.len(), discovery_fresh, missing_sample = ?coverage.missing.iter().take(10).collect::<Vec<_>>(), "coverage is incomplete; recovery continues");
+                }
+                if config.coverage_report.is_some() {
+                    to_write.push(Output::Coverage(CoverageStatus { observed_at: Utc::now().to_rfc3339(), discovery_age_secs, discovery_fresh, stopping: false, coverage }));
+                }
                 max_queue_delay_us = 0;
                 metrics_at = now;
                 last_deltas = engine.deltas_emitted;
@@ -249,6 +292,19 @@ pub async fn run(
         }
         if !writer_finished {
             for item in to_write {
+                let item = if let Output::Record(record) = item {
+                    let now = Instant::now();
+                    if let Record::Snapshot(snapshot) = &record {
+                        snapshot_schedule.published(&snapshot.symbol, now);
+                    }
+                    Output::TimedRecord {
+                        record,
+                        received: received.unwrap_or(now),
+                        queued: now,
+                    }
+                } else {
+                    item
+                };
                 if output_tx.send(item).await.is_err() {
                     cancel.cancel();
                     shutdown = true;
@@ -263,6 +319,21 @@ pub async fn run(
     }
     discovery.await.context("discovery task panicked")?;
     drop(events_tx);
+    let final_coverage = engine.coverage(config.replicas);
+    let missing = final_coverage.missing.len();
+    let discovery_age_secs = last_discovery.elapsed().as_secs();
+    let discovery_fresh = discovery_age_secs <= config.discovery_secs.saturating_mul(3);
+    if !writer_finished && config.coverage_report.is_some() {
+        let _ = output_tx
+            .send(Output::Coverage(CoverageStatus {
+                observed_at: Utc::now().to_rfc3339(),
+                discovery_age_secs,
+                discovery_fresh,
+                stopping: true,
+                coverage: final_coverage,
+            }))
+            .await;
+    }
     drop(output_tx);
     if !writer_finished
         && let Err(error) = writer
@@ -280,6 +351,10 @@ pub async fn run(
     if let Some(error) = fatal {
         return Err(error);
     }
+    anyhow::ensure!(
+        missing == 0 && discovery_fresh,
+        "incomplete collection: {missing} current markets lack a ready book; discovery_fresh={discovery_fresh}; inspect coverage report and logs"
+    );
     anyhow::ensure!(
         engine.market_count() == 0 || engine.snapshots_emitted > 0,
         "no market snapshots collected; check credentials, endpoints, and connectivity"
