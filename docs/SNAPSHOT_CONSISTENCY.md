@@ -54,4 +54,4 @@ The live verification remains correctly marked as failed. The client-side eviden
 
 Validation after these changes: all 63 Linux Rust tests and five native Windows Python tests pass; formatting, Clippy with warnings denied, and all release binaries pass. CI now also runs the independent Python tests on both platforms. No exchange orders or account mutations were performed.
 
-The subsequent [performance audit](PERFORMANCE_AUDIT.md) adds an omitted-empty-side regression according to Kalshi's documented schema. The current suite has 69 Linux Rust tests and six independent Python tests. This valid optional-field behavior is separate from the reproduced quantity disagreements above.
+The subsequent [performance audit](PERFORMANCE_AUDIT.md) adds an omitted-empty-side regression according to Kalshi's documented schema. The current suite has 74 Linux Rust tests and six independent Python tests. This valid optional-field behavior is separate from the reproduced quantity disagreements above.

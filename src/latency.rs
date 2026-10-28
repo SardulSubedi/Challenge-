@@ -149,7 +149,7 @@ impl Analyzer {
         }
         let first = *times.values().min().unwrap();
         for (source, received) in times {
-            // Bounded reservoir-free tail: cap memory for multi-hour runs; report this limit in docs.
+            // Bounded prefix: cap memory for multi-hour runs; report this limit in docs.
             let samples = self.samples.entry(source).or_default();
             if samples.len() < 1_000_000 {
                 samples.push(received.saturating_sub(first));

@@ -2,7 +2,9 @@
 
 Rust implementation of the [Voluntas engineering challenge](https://voluntas.io/engineering-challenge), built on the [required template](https://github.com/voluntas-io/engineering-challenge-template). The collector discovers every live regular Kalshi market, maintains redundant orderbooks, and emits standardized SBE snapshots and price-level updates.
 
-Measured optimizations reduce captured-frame decoding CPU time by about **62%** and initialized shallow-book test memory by **46%**. A full live run covered **151,653 currently discovered markets on both replicas**; see the [audit, methodology and limits](docs/PERFORMANCE_AUDIT.md).
+Measured optimizations reduce captured-frame decoding CPU time by about **62%** and initialized shallow-book test memory by **46%**. A full live run covered **153,278 currently discovered markets on both replicas**; see the [audit, methodology and limits](docs/PERFORMANCE_AUDIT.md).
+
+The [second review](docs/SECOND_PASS_REVIEW.md) adds lifecycle-burst batching, stricter smoke-test validation, fresh live evidence and 74 passing Rust tests.
 
 ## Run
 
@@ -64,7 +66,7 @@ cargo run --release --bin collector -- --symbols EXAMPLE --run-secs 140 \
   --output data/recycle-01.sbe --no-stdout
 ```
 
-The run timer starts after initial discovery. The allow-list uses the REST ticker filter for fast smoke tests and is for testing only; omit `--symbols` for the complete challenge. Lifecycle notifications trigger coalesced targeted REST checks on two existing sockets. Missed notifications recover through periodic full scans, which take the discovery interval plus scan/network time. Live exchange access is needed for authentication and real data; automated tests use a local mock server.
+The run timer starts after initial discovery. The allow-list uses the REST ticker filter for fast smoke tests and is for testing only; omit `--symbols` for the complete challenge. Lifecycle notifications trigger coalesced targeted REST checks on two existing sockets. Kalshi resolves up to 16 tickers per request at the same five-request-per-second ceiling; already-ready results are combined into one subscription change. An explicit allow-list with no currently live regular markets fails before creating an archive. Missed notifications recover through periodic full scans, which take the discovery interval plus scan/network time. Live exchange access is needed for authentication and real data; automated tests use a local mock server.
 
 ## Output and timestamps
 
@@ -93,7 +95,7 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --all-targets --locked
 ```
 
-The 69 automated tests (67 on Windows) cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets including reconnects, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify continuously delayed and silent primary failover, malformed snapshot rejection, scheduled snapshot ordering under backpressure, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
+The 74 automated tests (72 on Windows) cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets including reconnects, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify continuously delayed and silent primary failover, malformed snapshot rejection, scheduled snapshot ordering under backpressure, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
 
 ## Independent live checks and optional experiments
 
@@ -116,9 +118,9 @@ cargo run --release --bin feed-lab -- maintenance --symbol LIVE_BTC \
 
 The verifier exits unsuccessfully on engine disagreement, sequence loss, reconstruction failure, snapshot mismatch, insufficient activity, or SBE replay disagreement. The maintenance experiment requires an explicit closed-to-open exchange-status transition; starting while already open or seeing HTTP errors cannot fabricate a reopening. A wait timeout produces an explicitly inconclusive report. Source-port experiments use at most eight paced connections, stop additional rounds after a failed sample, and report relative arrival times without asserting a causal port advantage. NAT can rewrite the bound local port. See [results and experiment limits](docs/LATENCY.md).
 
-Verification archives now have an automatically saved `.wire.jsonl` sidecar containing the original public messages before decoding. Use `python scripts/audit-wire.py data/verified-01.wire.jsonl` for an independent Decimal reconstruction, or `feed-lab audit-archive --archive data/verified-01.sbe` to recover exact snapshot differences from a single-source verification archive. The [snapshot consistency investigation](docs/SNAPSHOT_CONSISTENCY.md) includes a small real exchange fixture that reproduces a disagreement without credentials. Its audit is expected to fail; the five Python regression tests assert that inconsistent data remains detectable. CI runs them with `python -m unittest discover -s tests -p test_audit_wire.py`.
+Verification archives now have an automatically saved `.wire.jsonl` sidecar containing the original public messages before decoding. Use `python scripts/audit-wire.py data/verified-01.wire.jsonl` for an independent Decimal reconstruction, or `feed-lab audit-archive --archive data/verified-01.sbe` to recover exact snapshot differences from a single-source verification archive. The [snapshot consistency investigation](docs/SNAPSHOT_CONSISTENCY.md) includes a small real exchange fixture that reproduces a disagreement without credentials. Its audit is expected to fail; the six Python regression tests assert that inconsistent data remains detectable. CI runs them with `python -m unittest discover -s tests -p test_audit_wire.py`.
 
-`Dockerfile` provides a non-root Linux image. Mount the key read-only, pass its container path through `KALSHI_PRIVATE_KEY_PATH`, and configure the matching key ID. `docs/collector.service` is an example systemd supervisor; adjust its install paths and user before deploying. No orders or account mutations are performed by the collector.
+`Dockerfile` provides a non-root Linux image. Mount the key read-only, pass its container path through `KALSHI_PRIVATE_KEY_PATH`, and configure the matching key ID. `docs/collector.service` is an example systemd supervisor; adjust its install paths and user before deploying. Give that user write access to its build directory and set `COLLECTOR_DATA_DIR` to an owned directory on native Linux storage. No orders or account mutations are performed by the collector.
 
 ## Template provenance
 

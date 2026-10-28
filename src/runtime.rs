@@ -34,6 +34,10 @@ pub async fn run(
         _ = cancel.cancelled() => return Ok(()),
         result = exchange.discover() => filter_symbols(result?, &config),
     };
+    anyhow::ensure!(
+        config.symbols.is_empty() || !initial.is_empty(),
+        "none of the requested symbols are currently live regular markets"
+    );
     let needed = initial.len().div_ceil(config.symbols_per_socket) * config.replicas;
     anyhow::ensure!(
         needed <= config.max_sockets,
@@ -433,7 +437,7 @@ pub async fn run(
     tracing::info!(
         deltas = engine.deltas_emitted,
         snapshots = engine.snapshots_emitted,
-        "collector stopped; output flushed and closed"
+        "collector stopped; output writer finished"
     );
     if let Some(error) = fatal {
         return Err(error);

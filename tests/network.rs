@@ -266,6 +266,77 @@ async fn omitted_empty_snapshot_side_keeps_both_connections_streaming() {
 }
 
 #[tokio::test]
+async fn lifecycle_burst_subscribes_every_new_market_before_the_next_full_scan() {
+    use engineering_challenge::auth::{Credentials, PrivateKey};
+    let state = MockState::new(false);
+    state.lifecycle.store(true, Ordering::SeqCst);
+    let (address, server) = start_server(state.clone()).await;
+    let adapter = Arc::new(
+        Kalshi::new(
+            format!("http://{address}"),
+            format!("ws://{address}/ws"),
+            Some(Arc::new(Credentials {
+                id: "test".into(),
+                key: PrivateKey::Ed25519(Box::new(ed25519_dalek::SigningKey::from_bytes(&[7; 32]))),
+            })),
+        )
+        .unwrap(),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let status = dir.path().join("burst.json");
+    let mut config = config();
+    config.discovery_secs = 3600;
+    config.run_secs = Some(3);
+    config.connect_interval_ms = 5;
+    config.no_stdout = true;
+    config.output = Some(dir.path().join("burst.sbe"));
+    config.coverage_report = Some(status.clone());
+    let task = tokio::spawn(runtime::run(config, adapter, CancellationToken::new()));
+    sleep(Duration::from_millis(300)).await;
+    state
+        .universe
+        .lock()
+        .unwrap()
+        .extend((0..16).map(|i| format!("NEW-{i:02}")));
+    task.await.unwrap().unwrap();
+    let report: Value = serde_json::from_slice(&std::fs::read(status).unwrap()).unwrap();
+    assert_eq!(report["coverage"]["markets"], 17);
+    assert_eq!(report["coverage"]["ready"], 17);
+    assert_eq!(report["coverage"]["redundant"], 17);
+    assert_eq!(state.connections.load(Ordering::SeqCst), 34);
+    server.abort();
+}
+
+#[tokio::test]
+async fn explicit_allowlist_without_live_markets_cannot_pass_an_empty_smoke_test() {
+    let state = MockState::new(false);
+    state.universe.lock().unwrap().clear();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("empty.sbe");
+    let mut config = config();
+    config.symbols = vec!["NOT-LIVE".into()];
+    config.run_secs = Some(0);
+    config.no_stdout = true;
+    config.output = Some(path.clone());
+    let result = runtime::run(
+        config,
+        exchange(state, "127.0.0.1:1".into()),
+        CancellationToken::new(),
+    )
+    .await;
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("none of the requested symbols")
+    );
+    assert!(
+        !path.exists(),
+        "invalid explicit test input must fail before reserving an archive"
+    );
+}
+
+#[tokio::test]
 async fn connection_budget_is_explicit_instead_of_silently_skipping_markets() {
     let state = MockState::new(false);
     *state.universe.lock().unwrap() = ["A".into(), "B".into()].into();

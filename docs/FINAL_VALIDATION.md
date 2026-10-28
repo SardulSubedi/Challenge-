@@ -2,7 +2,11 @@
 
 Validated October 27, 2026 in Ubuntu-24.04/WSL. This document separates implemented behavior, finite live evidence, and limits that the exchange data cannot resolve.
 
-## Latest performance audit
+## Latest second review
+
+The [second review](SECOND_PASS_REVIEW.md) passed 74 Linux Rust tests and six Python tests, formatting, all-target Clippy and locked release builds. The 180-second live rerun finished with all 153,278 discovered markets on both replicas and zero WebSocket failures; its 3,914,964 deltas and 460,426 snapshots decoded successfully. Lifecycle lookups now batch 16 tickers at the same HTTP pacing ceiling. Invalid explicit symbol tests fail before creating an archive. The report includes rate-limit retries and the temporary backup shortfall during protected refreshes rather than overstating uninterrupted redundancy.
+
+## Earlier performance audit
 
 The October 27–28 audit passed **69 Linux Rust tests and six independent Python tests**, formatting, all-target Clippy with warnings denied, and locked release builds. The submission also includes the native Linux source/toolchain migration and permanent raw-message consistency evidence. Historical sections below describe earlier revisions.
 

@@ -74,6 +74,20 @@ pub trait Exchange: Send + Sync {
     async fn resolve_symbol(&self, _symbol: &str) -> Result<bool> {
         bail!("adapter does not support lifecycle resolution")
     }
+    /// Number of lifecycle tickers one venue request can resolve. Adapters
+    /// without a batch endpoint keep their existing one-symbol request pacing.
+    fn resolution_batch_size(&self) -> usize {
+        1
+    }
+    async fn resolve_symbols(&self, symbols: &[String]) -> Result<BTreeSet<String>> {
+        let mut live = BTreeSet::new();
+        for symbol in symbols {
+            if self.resolve_symbol(symbol).await? {
+                live.insert(symbol.clone());
+            }
+        }
+        Ok(live)
+    }
 }
 
 pub struct Kalshi {
@@ -136,12 +150,31 @@ impl Exchange for Kalshi {
         )
     }
 
+    fn resolution_batch_size(&self) -> usize {
+        16
+    }
+
     async fn resolve_symbol(&self, symbol: &str) -> Result<bool> {
+        Ok(self
+            .resolve_symbols(&[symbol.to_owned()])
+            .await?
+            .contains(symbol))
+    }
+
+    async fn resolve_symbols(&self, symbols: &[String]) -> Result<BTreeSet<String>> {
+        if symbols.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        ensure!(
+            symbols.len() <= self.resolution_batch_size(),
+            "too many lifecycle symbols in one request"
+        );
+        let tickers = symbols.join(",");
         let response = self
             .client
             .get(format!("{}/markets", self.rest_url.trim_end_matches('/')))
             .query(&[
-                ("tickers", symbol),
+                ("tickers", tickers.as_str()),
                 ("status", "open"),
                 ("mve_filter", "exclude"),
                 ("limit", "1000"),
@@ -157,7 +190,9 @@ impl Exchange for Kalshi {
         Ok(page
             .markets
             .into_iter()
-            .any(|m| m.ticker == symbol && m.is_live_regular()))
+            .filter(|m| symbols.contains(&m.ticker) && m.is_live_regular())
+            .map(|m| m.ticker)
+            .collect())
     }
 
     async fn discover(&self) -> Result<BTreeSet<String>> {

@@ -1,0 +1,173 @@
+{
+  "kind": "second_pass_performance_recheck",
+  "scope": "one process per variant, nine internal timing repetitions; confirmation, not a replacement for earlier three-run interleaved results",
+  "cpu_runs": [
+    {
+      "variant": "baseline",
+      "binary_sha256": "fd9850bbabb2fbfcadbc4cff08a6aa2da9a1223570c9f8927e7170b1bf2c0b2d",
+      "rows": [
+        {
+          "allocations_per_op": 0.0,
+          "case": "decimal",
+          "iterations": 100000,
+          "max_ns": 39.41283,
+          "median_ns": 32.50118,
+          "min_ns": 29.20672
+        },
+        {
+          "allocations_per_op": 19.0,
+          "case": "decode_delta",
+          "iterations": 100000,
+          "max_ns": 1496.38739,
+          "median_ns": 1344.5521,
+          "min_ns": 1296.87282
+        },
+        {
+          "allocations_per_op": 670.0,
+          "case": "decode_snapshot_200_levels",
+          "iterations": 2000,
+          "max_ns": 54023.3135,
+          "median_ns": 46532.2355,
+          "min_ns": 44727.8345
+        },
+        {
+          "allocations_per_op": 0.0,
+          "case": "book_update_128_levels",
+          "iterations": 100000,
+          "max_ns": 20.52932,
+          "median_ns": 19.12274,
+          "min_ns": 18.70442
+        },
+        {
+          "allocations_per_op": 2.0,
+          "case": "engine_encode_150k_universe",
+          "iterations": 100000,
+          "max_ns": 911.97553,
+          "median_ns": 804.66345,
+          "min_ns": 733.48908
+        },
+        {
+          "allocations_per_op": 20623.1,
+          "case": "output_handoff_20k_records",
+          "iterations": 10,
+          "max_ns": 5330330.5,
+          "median_ns": 4866498.9,
+          "min_ns": 4432581.0
+        },
+        {
+          "allocations_per_op": 24.692605633802817,
+          "case": "decode_real_wire",
+          "iterations": 85200,
+          "max_ns": 2044.843251173709,
+          "median_ns": 1968.919366197183,
+          "min_ns": 1627.9091666666666
+        },
+        {
+          "bytes": 230731,
+          "case": "wire_equivalence",
+          "fingerprint": "5d1448d047359054",
+          "frames": 2840,
+          "records": 2839
+        }
+      ]
+    },
+    {
+      "variant": "rechecked",
+      "binary_sha256": "1da540e5c7bbc53c0dad00341bd4436e73401fb4dde8beb37c952941b435cc58",
+      "rows": [
+        {
+          "allocations_per_op": 0.0,
+          "case": "decimal",
+          "iterations": 100000,
+          "max_ns": 30.59601,
+          "median_ns": 20.15923,
+          "min_ns": 19.14338
+        },
+        {
+          "allocations_per_op": 1.0,
+          "case": "decode_delta",
+          "iterations": 100000,
+          "max_ns": 577.06748,
+          "median_ns": 505.81976,
+          "min_ns": 498.01965
+        },
+        {
+          "allocations_per_op": 34.0,
+          "case": "decode_snapshot_200_levels",
+          "iterations": 2000,
+          "max_ns": 19481.601,
+          "median_ns": 17886.633,
+          "min_ns": 17692.0765
+        },
+        {
+          "allocations_per_op": 0.0,
+          "case": "book_update_128_levels",
+          "iterations": 100000,
+          "max_ns": 12.89778,
+          "median_ns": 11.08638,
+          "min_ns": 10.26158
+        },
+        {
+          "allocations_per_op": 1.0,
+          "case": "engine_encode_150k_universe",
+          "iterations": 100000,
+          "max_ns": 166.02757,
+          "median_ns": 151.5741,
+          "min_ns": 140.99377
+        },
+        {
+          "allocations_per_op": 20620.4,
+          "case": "output_handoff_20k_records",
+          "iterations": 10,
+          "max_ns": 4562225.2,
+          "median_ns": 4220818.2,
+          "min_ns": 4088005.5
+        },
+        {
+          "allocations_per_op": 1.1320422535211268,
+          "case": "decode_real_wire",
+          "iterations": 85200,
+          "max_ns": 750.400352112676,
+          "median_ns": 610.812558685446,
+          "min_ns": 600.2579812206573
+        },
+        {
+          "bytes": 230731,
+          "case": "wire_equivalence",
+          "fingerprint": "5d1448d047359054",
+          "frames": 2840,
+          "records": 2839
+        }
+      ]
+    }
+  ],
+  "pipeline": {
+    "archive_bytes": 268435456,
+    "coverage": {
+      "coverage": {
+        "caught_up_redundant": 4000,
+        "clocked_markets": 0,
+        "markets": 4000,
+        "missing": [],
+        "ready": 4000,
+        "redundant": 4000,
+        "under_replicated": []
+      },
+      "discovery_age_secs": 12,
+      "discovery_fresh": true,
+      "observed_at": "2026-10-28T01:12:00.649493668+00:00",
+      "stopping": true
+    },
+    "kind": "loopback_pipeline",
+    "local_send_to_capture": {
+      "clock": "one shared monotonic Instant; capture boundary immediately before production decode",
+      "max_us": 832,
+      "overflow_32768us": 0,
+      "p50_us": 222,
+      "p99_us": 458,
+      "samples": 560100
+    },
+    "replayed_deltas": 479000,
+    "threads": 4
+  }
+}

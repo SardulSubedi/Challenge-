@@ -6,7 +6,7 @@ use clap::Parser;
 #[derive(Clone, Debug, Parser)]
 #[command(
     version,
-    about = "Complete, redundant Kalshi orderbook collector. Binary SBE on stdout; diagnostics on stderr."
+    about = "Redundant Kalshi orderbook collector. Binary SBE on stdout; diagnostics on stderr."
 )]
 pub struct Config {
     #[arg(long, env = "KALSHI_API_KEY_ID", hide_env_values = true)]
