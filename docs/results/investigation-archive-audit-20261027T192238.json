@@ -1,0 +1,166 @@
+{
+  "archive": "/var/tmp/voluntas-challenge/data/investigation-20261027T192238.sbe",
+  "kind": "verification_archive_audit",
+  "passed": false,
+  "report": {
+    "deltas": 97794,
+    "mismatches": [
+      {
+        "at": "2026-10-27T19:22:42.922664+00:00",
+        "clock": null,
+        "different_levels": 1,
+        "levels": [
+          {
+            "price": 990000,
+            "reconstructed_quantity": 52478340000,
+            "side": 1,
+            "snapshot_quantity": 52475610000
+          }
+        ],
+        "seq": null,
+        "symbol": "KXBTC15M-26OCT271530-30"
+      },
+      {
+        "at": "2026-10-27T19:22:54.922667+00:00",
+        "clock": null,
+        "different_levels": 4,
+        "levels": [
+          {
+            "price": 130000,
+            "reconstructed_quantity": 16165870000,
+            "side": 0,
+            "snapshot_quantity": 16965870000
+          },
+          {
+            "price": 180000,
+            "reconstructed_quantity": 4330740000,
+            "side": 0,
+            "snapshot_quantity": 5130740000
+          },
+          {
+            "price": 190000,
+            "reconstructed_quantity": 4259510000,
+            "side": 0,
+            "snapshot_quantity": 4260510000
+          },
+          {
+            "price": 200000,
+            "reconstructed_quantity": 5820360000,
+            "side": 0,
+            "snapshot_quantity": 5821360000
+          }
+        ],
+        "seq": null,
+        "symbol": "KXBTC15M-26OCT271530-30"
+      },
+      {
+        "at": "2026-10-27T19:22:54.923438+00:00",
+        "clock": null,
+        "different_levels": 1,
+        "levels": [
+          {
+            "price": 320000,
+            "reconstructed_quantity": 513000000,
+            "side": 0,
+            "snapshot_quantity": 653000000
+          }
+        ],
+        "seq": null,
+        "symbol": "KXETH15M-26OCT271530-30"
+      },
+      {
+        "at": "2026-10-27T19:23:34.919644+00:00",
+        "clock": null,
+        "different_levels": 1,
+        "levels": [
+          {
+            "price": 200000,
+            "reconstructed_quantity": 3263270000,
+            "side": 0,
+            "snapshot_quantity": 2263270000
+          }
+        ],
+        "seq": null,
+        "symbol": "KXBTC15M-26OCT271530-30"
+      },
+      {
+        "at": "2026-10-27T19:24:05.925265+00:00",
+        "clock": null,
+        "different_levels": 4,
+        "levels": [
+          {
+            "price": 120000,
+            "reconstructed_quantity": 21290170000,
+            "side": 0,
+            "snapshot_quantity": 21160170000
+          },
+          {
+            "price": 140000,
+            "reconstructed_quantity": 5145330000,
+            "side": 0,
+            "snapshot_quantity": 5142330000
+          },
+          {
+            "price": 240000,
+            "reconstructed_quantity": 3473620000,
+            "side": 1,
+            "snapshot_quantity": 3470620000
+          },
+          {
+            "price": 270000,
+            "reconstructed_quantity": 2726370000,
+            "side": 1,
+            "snapshot_quantity": 2596370000
+          }
+        ],
+        "seq": null,
+        "symbol": "KXBTC15M-26OCT271530-30"
+      },
+      {
+        "at": "2026-10-27T19:25:02.923819+00:00",
+        "clock": null,
+        "different_levels": 1,
+        "levels": [
+          {
+            "price": 110000,
+            "reconstructed_quantity": 8156090000,
+            "side": 0,
+            "snapshot_quantity": 8138480000
+          }
+        ],
+        "seq": null,
+        "symbol": "KXBTC15M-26OCT271530-30"
+      },
+      {
+        "at": "2026-10-27T19:25:21.927977+00:00",
+        "clock": null,
+        "different_levels": 3,
+        "levels": [
+          {
+            "price": 70000,
+            "reconstructed_quantity": 4186060000,
+            "side": 0,
+            "snapshot_quantity": 4185960000
+          },
+          {
+            "price": 100000,
+            "reconstructed_quantity": 16894410000,
+            "side": 0,
+            "snapshot_quantity": 16894510000
+          },
+          {
+            "price": 160000,
+            "reconstructed_quantity": 2000000000,
+            "side": 1,
+            "snapshot_quantity": 7520000000
+          }
+        ],
+        "seq": null,
+        "symbol": "KXBTC15M-26OCT271530-30"
+      }
+    ],
+    "records": 98154,
+    "snapshot_checks": 358,
+    "snapshot_mismatches": 7
+  }
+}

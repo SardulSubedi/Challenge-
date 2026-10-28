@@ -23,6 +23,11 @@ use crate::{
 };
 
 pub enum Event {
+    Snapshot {
+        source: Source,
+        symbols: Vec<String>,
+        received_at: DateTime<Utc>,
+    },
     Lifecycle(String),
     Rescan,
     Refresh {
@@ -88,6 +93,7 @@ pub struct Worker {
     pub exchange: Arc<dyn Exchange>,
     pub desired: watch::Receiver<BTreeSet<String>>,
     pub repairs: mpsc::UnboundedReceiver<String>,
+    pub snapshots: mpsc::Receiver<Vec<String>>,
     pub events: mpsc::Sender<Event>,
     pub cancel: CancellationToken,
     pub gate: Arc<ConnectGate>,
@@ -302,6 +308,15 @@ impl Worker {
                     reconcile = true;
                 },
                 Some(symbol) = self.repairs.recv() => { repair.insert(symbol); reconcile = true; },
+                Some(symbols) = self.snapshots.recv() => {
+                    // This marker follows every frame already captured by this worker.
+                    // Later frames receive timestamps after the marker, even under backpressure.
+                    self.emit(Event::Snapshot {
+                        source: self.source,
+                        symbols,
+                        received_at: Utc::now(),
+                    }).await?;
+                },
                 incoming = socket.next() => {
                     let received_at = Utc::now();
                     let now = Instant::now();
@@ -393,6 +408,13 @@ impl Worker {
     }
 
     async fn emit(&self, event: Event) -> Result<()> {
+        if matches!(&event, Event::Data { .. } | Event::Snapshot { .. }) {
+            // A normal stop must drain a frame whose receive timestamp was
+            // already captured, even when the bounded engine queue is full.
+            return timeout(Duration::from_secs(5), self.events.send(event))
+                .await?
+                .context("collector stopped");
+        }
         tokio::select! {
             _ = self.cancel.cancelled() => bail!("shutdown"),
             result = timeout(Duration::from_secs(5), self.events.send(event)) => result?.context("collector stopped"),
@@ -422,6 +444,63 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn shutdown_drains_captured_data_and_boundaries_under_backpressure() {
+        use crate::{book::Book, exchange::Kalshi};
+        use clap::Parser;
+        let (events, mut rx) = mpsc::channel(1);
+        let (_desired, desired) = watch::channel(BTreeSet::new());
+        let (_repairs, repairs) = mpsc::unbounded_channel();
+        let (_snapshots, snapshots) = mpsc::channel(1);
+        let cancel = CancellationToken::new();
+        let worker = Worker {
+            source: 0,
+            config: Arc::new(Config::parse_from(["collector"])),
+            exchange: Arc::new(
+                Kalshi::new("http://localhost".into(), "ws://localhost".into(), None).unwrap(),
+            ),
+            desired,
+            repairs,
+            snapshots,
+            events: events.clone(),
+            cancel: cancel.clone(),
+            gate: Arc::new(ConnectGate::default()),
+        };
+        events.send(Event::Rescan).await.unwrap();
+        let task = tokio::spawn(async move {
+            worker
+                .emit(Event::Data {
+                    source: 0,
+                    data: MarketData {
+                        symbol: "A".into(),
+                        clock: None,
+                        exchange_at: Utc::now(),
+                        change: Change::Snapshot(Book::default()),
+                    },
+                    received_at: Utc::now(),
+                    now: Instant::now(),
+                })
+                .await
+                .unwrap();
+            worker
+                .emit(Event::Snapshot {
+                    source: 0,
+                    symbols: vec!["A".into()],
+                    received_at: Utc::now(),
+                })
+                .await
+                .unwrap();
+        });
+        tokio::task::yield_now().await;
+        cancel.cancel();
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        assert!(matches!(rx.recv().await, Some(Event::Rescan)));
+        assert!(matches!(rx.recv().await, Some(Event::Data { .. })));
+        assert!(matches!(rx.recv().await, Some(Event::Snapshot { .. })));
+        task.await.unwrap();
+    }
+
     #[tokio::test(start_paused = true)]
     async fn global_cooldown_holds_new_connection_attempts() {
         let gate = Arc::new(ConnectGate::default());

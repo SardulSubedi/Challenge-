@@ -25,7 +25,14 @@ $Distribution = 'Ubuntu-24.04'
 $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path -Parent $PSScriptRoot)
 try {
-    & wsl -d $Distribution -- bash ./scripts/cargo-wsl.sh @CargoArguments
+    $NativeRootFile = Join-Path (Get-Location).Path 'work/native-wsl-root.txt'
+    if (Test-Path -LiteralPath $NativeRootFile) {
+        $NativeRoot = (Get-Content -LiteralPath $NativeRootFile -Raw).Trim()
+        if (!$NativeRoot.StartsWith('/')) { throw 'The native WSL checkout path must be absolute.' }
+        & wsl -d $Distribution --cd $NativeRoot -- bash ./scripts/cargo-wsl.sh @CargoArguments
+    } else {
+        & wsl -d $Distribution -- bash ./scripts/cargo-wsl.sh @CargoArguments
+    }
     exit $LASTEXITCODE
 } finally {
     Pop-Location

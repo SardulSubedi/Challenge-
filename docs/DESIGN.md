@@ -14,7 +14,11 @@ The engine remembers the last emitted `(clock, ordinal)` position. A candidate b
 
 A transport sequence gap invalidates *all* books on that subscription. A locally impossible update (negative quantity/overflow) invalidates that symbol's replica and requests an unsubscribe/resubscribe. A decreasing exchange clock triggers a full per-market rebuild across replicas because pre-maintenance clocks are no longer comparable. No deltas are applied to a missing or uninitialized book.
 
+Clock history survives replica invalidation and reconnects. A fresh snapshot below that same source's previous clock triggers a rebuild even if every socket disconnected first. A reconnecting backup that remains behind another source, but advances its own clock, does not reset the market. Kalshi documents omitted snapshot sides as empty; empty arrays and legacy null sides also remain valid. Supplied malformed levels fail decoding. The live omitted-side regression fixture and network test protect this full-universe behavior.
+
 A backup update starts a grace period rather than immediately replacing a quiet primary. Normal duplicate arrival clears that pending suspicion. A periodic check switches only if the primary fails to catch up, and waits for the collector queue to drain first. Timing logs are optional; when disabled, backup updates avoid allocating output DTOs and latency observations.
+
+Primary activity alone does not clear the grace period: the primary must catch up with its backups. For clockless feeds, exchange timestamps provide only a heuristic progress comparison, but they take precedence over arrival time when ranking candidates. This prevents a continuously delayed source from winning solely because it received an old event most recently.
 
 ## Subscription state
 
@@ -25,6 +29,8 @@ A separate reconciliation task compares complete REST universes and forwards onl
 ## Time and liveness
 
 Local receive time is captured at the application WebSocket boundary, not at the kernel NIC. It includes TLS and runtime scheduling delays; this is a deliberate, testable measurement boundary. Health timers use monotonic time. Exchange timestamps are separate and may be unknown (zero) or skewed. Scheduled snapshots describe the latest *observed* state, which can be quiet for minutes without being invalid.
+
+Scheduled snapshots use a timestamped boundary emitted by the active socket worker into the same queue as its data. Frames already captured by that worker precede the boundary; later captures follow it. The engine accepts the boundary only while that source is selected. One pending request batch per worker bounds control traffic; unavailable or switched sources retry after at most one second of scheduling delay, plus queue/reconnect delay. This preserves scheduled snapshot ordering without changing actual delta receive timestamps or waiting for the whole universe to become idle.
 
 Pings distinguish a dead transport from a quiet market. Symbol-rate monitoring is a heuristic, not proof that a quiet subscription is broken. Silence and sharp activity drops trigger conservative refreshes with cooldowns. Quiet thresholds and scheduled connection recycling are staggered by replica so repairs usually preserve another copy. Rate-drop checks can still coincide. The engine approves planned refreshes only when another eligible book remains (unless one replica was explicitly configured), invalidating approved replicas before granting permission so concurrent requests cannot both remove the last copy. Planned whole-socket recycling is postponed if any initialized book lacks an eligible alternate. Forced transport failures and corrupt books invalidate unconditionally; redundancy cannot guarantee uninterrupted delivery.
 

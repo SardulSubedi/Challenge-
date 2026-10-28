@@ -1,0 +1,175 @@
+{
+  "method": "Independent raw JSON and Decimal; no production code",
+  "input": "/var/tmp/voluntas-challenge/data/investigation-20261027T192238.wire.log",
+  "sha256": "be2d3105f67cb9b9b1ee2195fe94513945c7f24d806ab20d58b0868bc7be0c2d",
+  "frames": 98155,
+  "deltas": 97794,
+  "snapshot_checks": 358,
+  "clocked_market_frames": 0,
+  "sequence_gaps": [],
+  "snapshot_mismatches": 7,
+  "cases": [
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 2839,
+      "clock": null,
+      "sending_ts_ms": 1793128962701,
+      "levels": [
+        {
+          "side": "no",
+          "price": "0.0100",
+          "reconstructed_quantity": "52478.34",
+          "snapshot_quantity": "52475.61",
+          "offset": "-2.73"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 11866,
+      "clock": null,
+      "sending_ts_ms": 1793128974702,
+      "levels": [
+        {
+          "side": "yes",
+          "price": "0.1300",
+          "reconstructed_quantity": "16165.87",
+          "snapshot_quantity": "16965.87",
+          "offset": "800.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.1800",
+          "reconstructed_quantity": "4330.74",
+          "snapshot_quantity": "5130.74",
+          "offset": "800.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.1900",
+          "reconstructed_quantity": "4259.51",
+          "snapshot_quantity": "4260.51",
+          "offset": "1.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.2000",
+          "reconstructed_quantity": "5820.36",
+          "snapshot_quantity": "5821.36",
+          "offset": "1.00"
+        }
+      ]
+    },
+    {
+      "symbol": "KXETH15M-26OCT271530-30",
+      "seq": 11867,
+      "clock": null,
+      "sending_ts_ms": 1793128974702,
+      "levels": [
+        {
+          "side": "yes",
+          "price": "0.3200",
+          "reconstructed_quantity": "513.00",
+          "snapshot_quantity": "653.00",
+          "offset": "140.00"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 34877,
+      "clock": null,
+      "sending_ts_ms": 1793129014716,
+      "levels": [
+        {
+          "side": "yes",
+          "price": "0.2000",
+          "reconstructed_quantity": "3263.27",
+          "snapshot_quantity": "2263.27",
+          "offset": "-1000.00"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 47802,
+      "clock": null,
+      "sending_ts_ms": 1793129045797,
+      "levels": [
+        {
+          "side": "no",
+          "price": "0.7300",
+          "reconstructed_quantity": "2726.37",
+          "snapshot_quantity": "2596.37",
+          "offset": "-130.00"
+        },
+        {
+          "side": "no",
+          "price": "0.7600",
+          "reconstructed_quantity": "3473.62",
+          "snapshot_quantity": "3470.62",
+          "offset": "-3.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.1200",
+          "reconstructed_quantity": "21290.17",
+          "snapshot_quantity": "21160.17",
+          "offset": "-130.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.1400",
+          "reconstructed_quantity": "5145.33",
+          "snapshot_quantity": "5142.33",
+          "offset": "-3.00"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 75835,
+      "clock": null,
+      "sending_ts_ms": 1793129102778,
+      "levels": [
+        {
+          "side": "yes",
+          "price": "0.1100",
+          "reconstructed_quantity": "8156.09",
+          "snapshot_quantity": "8138.48",
+          "offset": "-17.61"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 89061,
+      "clock": null,
+      "sending_ts_ms": 1793129121754,
+      "levels": [
+        {
+          "side": "no",
+          "price": "0.8400",
+          "reconstructed_quantity": "2000.00",
+          "snapshot_quantity": "7520.00",
+          "offset": "5520.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.0700",
+          "reconstructed_quantity": "4186.06",
+          "snapshot_quantity": "4185.96",
+          "offset": "-0.10"
+        },
+        {
+          "side": "yes",
+          "price": "0.1000",
+          "reconstructed_quantity": "16894.41",
+          "snapshot_quantity": "16894.51",
+          "offset": "0.10"
+        }
+      ]
+    }
+  ],
+  "passed": false
+}

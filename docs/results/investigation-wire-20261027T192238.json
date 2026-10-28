@@ -1,0 +1,1307 @@
+{
+  "method": "Independent Python Decimal reconstruction directly from public JSON wire frames; no production decoder or book code used.",
+  "frames": 98155,
+  "deltas": 97794,
+  "snapshot_checks": 358,
+  "clocked_market_frames": 0,
+  "sequence_gaps": [],
+  "snapshot_mismatches": 7,
+  "cases": [
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 2839,
+      "sending_ts_ms": 1793128962701,
+      "clock": null,
+      "preceding": [
+        {
+          "seq": 2829,
+          "side": "no",
+          "price": "0.6700",
+          "delta": "-154.81",
+          "ts_ms": 1793128962688,
+          "sending_ts_ms": 1793128962693
+        },
+        {
+          "seq": 2830,
+          "side": "no",
+          "price": "0.7100",
+          "delta": "180.00",
+          "ts_ms": 1793128962692,
+          "sending_ts_ms": 1793128962697
+        },
+        {
+          "seq": 2831,
+          "side": "yes",
+          "price": "0.2600",
+          "delta": "-1.00",
+          "ts_ms": 1793128962692,
+          "sending_ts_ms": 1793128962697
+        },
+        {
+          "seq": 2832,
+          "side": "yes",
+          "price": "0.2700",
+          "delta": "1.00",
+          "ts_ms": 1793128962692,
+          "sending_ts_ms": 1793128962697
+        },
+        {
+          "seq": 2833,
+          "side": "no",
+          "price": "0.7100",
+          "delta": "-1.00",
+          "ts_ms": 1793128962693,
+          "sending_ts_ms": 1793128962697
+        },
+        {
+          "seq": 2834,
+          "side": "no",
+          "price": "0.7000",
+          "delta": "1.00",
+          "ts_ms": 1793128962693,
+          "sending_ts_ms": 1793128962697
+        },
+        {
+          "seq": 2835,
+          "side": "yes",
+          "price": "0.2700",
+          "delta": "740.00",
+          "ts_ms": 1793128962693,
+          "sending_ts_ms": 1793128962697
+        },
+        {
+          "seq": 2836,
+          "side": "yes",
+          "price": "0.2600",
+          "delta": "-121.00",
+          "ts_ms": 1793128962693,
+          "sending_ts_ms": 1793128962697
+        },
+        {
+          "seq": 2837,
+          "side": "no",
+          "price": "0.7000",
+          "delta": "-736.00",
+          "ts_ms": 1793128962693,
+          "sending_ts_ms": 1793128962697
+        },
+        {
+          "seq": 2838,
+          "side": "yes",
+          "price": "0.2700",
+          "delta": "140.00",
+          "ts_ms": 1793128962693,
+          "sending_ts_ms": 1793128962697
+        }
+      ],
+      "following": [
+        {
+          "seq": 2841,
+          "side": "yes",
+          "price": "0.2700",
+          "delta": "1.00",
+          "ts_ms": 1793128962697,
+          "sending_ts_ms": 1793128962701
+        },
+        {
+          "seq": 2844,
+          "side": "no",
+          "price": "0.4800",
+          "delta": "-1.00",
+          "ts_ms": 1793128962700,
+          "sending_ts_ms": 1793128962704
+        },
+        {
+          "seq": 2845,
+          "side": "no",
+          "price": "0.4700",
+          "delta": "1.00",
+          "ts_ms": 1793128962700,
+          "sending_ts_ms": 1793128962704
+        },
+        {
+          "seq": 2846,
+          "side": "yes",
+          "price": "0.2700",
+          "delta": "-2.73",
+          "ts_ms": 1793128962703,
+          "sending_ts_ms": 1793128962708
+        },
+        {
+          "seq": 2847,
+          "side": "yes",
+          "price": "0.0780",
+          "delta": "215.36",
+          "ts_ms": 1793128962704,
+          "sending_ts_ms": 1793128962708
+        },
+        {
+          "seq": 2848,
+          "side": "yes",
+          "price": "0.1300",
+          "delta": "69.95",
+          "ts_ms": 1793128962704,
+          "sending_ts_ms": 1793128962708
+        },
+        {
+          "seq": 2849,
+          "side": "no",
+          "price": "0.4700",
+          "delta": "-1.00",
+          "ts_ms": 1793128962707,
+          "sending_ts_ms": 1793128962712
+        },
+        {
+          "seq": 2850,
+          "side": "no",
+          "price": "0.4800",
+          "delta": "1.00",
+          "ts_ms": 1793128962707,
+          "sending_ts_ms": 1793128962712
+        },
+        {
+          "seq": 2851,
+          "side": "no",
+          "price": "0.7200",
+          "delta": "1210.23",
+          "ts_ms": 1793128962708,
+          "sending_ts_ms": 1793128962712
+        },
+        {
+          "seq": 2853,
+          "side": "yes",
+          "price": "0.2700",
+          "delta": "-500.00",
+          "ts_ms": 1793128962711,
+          "sending_ts_ms": 1793128962718
+        }
+      ],
+      "matches": [],
+      "differences": [
+        {
+          "side": "no",
+          "price": "0.0100",
+          "offset": "-2.73"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 11866,
+      "sending_ts_ms": 1793128974702,
+      "clock": null,
+      "preceding": [
+        {
+          "seq": 11851,
+          "side": "yes",
+          "price": "0.3000",
+          "delta": "-25.00",
+          "ts_ms": 1793128974692,
+          "sending_ts_ms": 1793128974697
+        },
+        {
+          "seq": 11853,
+          "side": "yes",
+          "price": "0.0920",
+          "delta": "-1.00",
+          "ts_ms": 1793128974693,
+          "sending_ts_ms": 1793128974697
+        },
+        {
+          "seq": 11854,
+          "side": "yes",
+          "price": "0.3100",
+          "delta": "-32.00",
+          "ts_ms": 1793128974694,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11855,
+          "side": "no",
+          "price": "0.6700",
+          "delta": "1.00",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11856,
+          "side": "yes",
+          "price": "0.2600",
+          "delta": "-1.00",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11857,
+          "side": "yes",
+          "price": "0.2700",
+          "delta": "1.00",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11858,
+          "side": "yes",
+          "price": "0.2600",
+          "delta": "200.00",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11859,
+          "side": "yes",
+          "price": "0.1000",
+          "delta": "-20.27",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11861,
+          "side": "yes",
+          "price": "0.3200",
+          "delta": "500.00",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11864,
+          "side": "no",
+          "price": "0.6300",
+          "delta": "-28.32",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        }
+      ],
+      "following": [
+        {
+          "seq": 11868,
+          "side": "yes",
+          "price": "0.3200",
+          "delta": "-0.01",
+          "ts_ms": 1793128974698,
+          "sending_ts_ms": 1793128974702
+        },
+        {
+          "seq": 11869,
+          "side": "yes",
+          "price": "0.3200",
+          "delta": "-0.01",
+          "ts_ms": 1793128974698,
+          "sending_ts_ms": 1793128974702
+        },
+        {
+          "seq": 11870,
+          "side": "yes",
+          "price": "0.3200",
+          "delta": "-114.00",
+          "ts_ms": 1793128974698,
+          "sending_ts_ms": 1793128974702
+        },
+        {
+          "seq": 11871,
+          "side": "yes",
+          "price": "0.3200",
+          "delta": "-40.00",
+          "ts_ms": 1793128974698,
+          "sending_ts_ms": 1793128974702
+        },
+        {
+          "seq": 11872,
+          "side": "yes",
+          "price": "0.3200",
+          "delta": "-25.00",
+          "ts_ms": 1793128974698,
+          "sending_ts_ms": 1793128974702
+        },
+        {
+          "seq": 11873,
+          "side": "yes",
+          "price": "0.3200",
+          "delta": "-500.00",
+          "ts_ms": 1793128974698,
+          "sending_ts_ms": 1793128974702
+        },
+        {
+          "seq": 11874,
+          "side": "no",
+          "price": "0.6800",
+          "delta": "320.98",
+          "ts_ms": 1793128974698,
+          "sending_ts_ms": 1793128974702
+        },
+        {
+          "seq": 11875,
+          "side": "yes",
+          "price": "0.1100",
+          "delta": "-28.32",
+          "ts_ms": 1793128974698,
+          "sending_ts_ms": 1793128974703
+        },
+        {
+          "seq": 11876,
+          "side": "no",
+          "price": "0.6800",
+          "delta": "1000.00",
+          "ts_ms": 1793128974698,
+          "sending_ts_ms": 1793128974703
+        },
+        {
+          "seq": 11877,
+          "side": "yes",
+          "price": "0.3100",
+          "delta": "-731.00",
+          "ts_ms": 1793128974699,
+          "sending_ts_ms": 1793128974703
+        }
+      ],
+      "matches": [],
+      "differences": [
+        {
+          "side": "yes",
+          "price": "0.2000",
+          "offset": "1.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.1300",
+          "offset": "800.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.1800",
+          "offset": "800.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.1900",
+          "offset": "1.00"
+        }
+      ]
+    },
+    {
+      "symbol": "KXETH15M-26OCT271530-30",
+      "seq": 11867,
+      "sending_ts_ms": 1793128974702,
+      "clock": null,
+      "preceding": [
+        {
+          "seq": 11812,
+          "side": "no",
+          "price": "0.6400",
+          "delta": "-7.04",
+          "ts_ms": 1793128974683,
+          "sending_ts_ms": 1793128974689
+        },
+        {
+          "seq": 11815,
+          "side": "no",
+          "price": "0.6200",
+          "delta": "-23.00",
+          "ts_ms": 1793128974684,
+          "sending_ts_ms": 1793128974689
+        },
+        {
+          "seq": 11846,
+          "side": "yes",
+          "price": "0.3600",
+          "delta": "16.00",
+          "ts_ms": 1793128974690,
+          "sending_ts_ms": 1793128974695
+        },
+        {
+          "seq": 11847,
+          "side": "yes",
+          "price": "0.3300",
+          "delta": "-16.00",
+          "ts_ms": 1793128974690,
+          "sending_ts_ms": 1793128974695
+        },
+        {
+          "seq": 11849,
+          "side": "yes",
+          "price": "0.3200",
+          "delta": "-234.00",
+          "ts_ms": 1793128974692,
+          "sending_ts_ms": 1793128974697
+        },
+        {
+          "seq": 11852,
+          "side": "no",
+          "price": "0.4000",
+          "delta": "-20.00",
+          "ts_ms": 1793128974693,
+          "sending_ts_ms": 1793128974697
+        },
+        {
+          "seq": 11860,
+          "side": "no",
+          "price": "0.6300",
+          "delta": "30.00",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11862,
+          "side": "yes",
+          "price": "0.3100",
+          "delta": "-30.00",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11863,
+          "side": "no",
+          "price": "0.6300",
+          "delta": "30.00",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        },
+        {
+          "seq": 11865,
+          "side": "no",
+          "price": "0.6300",
+          "delta": "30.00",
+          "ts_ms": 1793128974695,
+          "sending_ts_ms": 1793128974698
+        }
+      ],
+      "following": [
+        {
+          "seq": 11888,
+          "side": "no",
+          "price": "0.6200",
+          "delta": "500.00",
+          "ts_ms": 1793128974699,
+          "sending_ts_ms": 1793128974704
+        },
+        {
+          "seq": 11891,
+          "side": "yes",
+          "price": "0.0650",
+          "delta": "-641.00",
+          "ts_ms": 1793128974700,
+          "sending_ts_ms": 1793128974704
+        },
+        {
+          "seq": 11893,
+          "side": "yes",
+          "price": "0.0650",
+          "delta": "-641.00",
+          "ts_ms": 1793128974700,
+          "sending_ts_ms": 1793128974704
+        },
+        {
+          "seq": 11946,
+          "side": "no",
+          "price": "0.5600",
+          "delta": "-1.00",
+          "ts_ms": 1793128974705,
+          "sending_ts_ms": 1793128974710
+        },
+        {
+          "seq": 11959,
+          "side": "yes",
+          "price": "0.1000",
+          "delta": "416.00",
+          "ts_ms": 1793128974706,
+          "sending_ts_ms": 1793128974712
+        },
+        {
+          "seq": 12014,
+          "side": "no",
+          "price": "0.5500",
+          "delta": "1.00",
+          "ts_ms": 1793128974713,
+          "sending_ts_ms": 1793128974718
+        },
+        {
+          "seq": 12031,
+          "side": "yes",
+          "price": "0.3500",
+          "delta": "-500.00",
+          "ts_ms": 1793128974721,
+          "sending_ts_ms": 1793128974729
+        },
+        {
+          "seq": 12039,
+          "side": "no",
+          "price": "0.6300",
+          "delta": "500.00",
+          "ts_ms": 1793128974725,
+          "sending_ts_ms": 1793128974731
+        },
+        {
+          "seq": 12042,
+          "side": "no",
+          "price": "0.6300",
+          "delta": "10.00",
+          "ts_ms": 1793128974726,
+          "sending_ts_ms": 1793128974731
+        },
+        {
+          "seq": 12044,
+          "side": "yes",
+          "price": "0.3500",
+          "delta": "-3.00",
+          "ts_ms": 1793128974730,
+          "sending_ts_ms": 1793128974736
+        }
+      ],
+      "matches": [],
+      "differences": [
+        {
+          "side": "yes",
+          "price": "0.3200",
+          "offset": "140.00"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 34877,
+      "sending_ts_ms": 1793129014716,
+      "clock": null,
+      "preceding": [
+        {
+          "seq": 34849,
+          "side": "yes",
+          "price": "0.1400",
+          "delta": "119.91",
+          "ts_ms": 1793129014623,
+          "sending_ts_ms": 1793129014629
+        },
+        {
+          "seq": 34850,
+          "side": "no",
+          "price": "0.6800",
+          "delta": "15000.00",
+          "ts_ms": 1793129014627,
+          "sending_ts_ms": 1793129014633
+        },
+        {
+          "seq": 34851,
+          "side": "no",
+          "price": "0.7900",
+          "delta": "-11.28",
+          "ts_ms": 1793129014630,
+          "sending_ts_ms": 1793129014635
+        },
+        {
+          "seq": 34852,
+          "side": "no",
+          "price": "0.1400",
+          "delta": "5400.00",
+          "ts_ms": 1793129014630,
+          "sending_ts_ms": 1793129014635
+        },
+        {
+          "seq": 34864,
+          "side": "yes",
+          "price": "0.2000",
+          "delta": "-19.00",
+          "ts_ms": 1793129014668,
+          "sending_ts_ms": 1793129014674
+        },
+        {
+          "seq": 34866,
+          "side": "no",
+          "price": "0.7900",
+          "delta": "1.00",
+          "ts_ms": 1793129014682,
+          "sending_ts_ms": 1793129014689
+        },
+        {
+          "seq": 34873,
+          "side": "no",
+          "price": "0.7900",
+          "delta": "-10.61",
+          "ts_ms": 1793129014703,
+          "sending_ts_ms": 1793129014707
+        },
+        {
+          "seq": 34874,
+          "side": "no",
+          "price": "0.0100",
+          "delta": "-10.11",
+          "ts_ms": 1793129014704,
+          "sending_ts_ms": 1793129014707
+        },
+        {
+          "seq": 34875,
+          "side": "yes",
+          "price": "0.2000",
+          "delta": "-500.00",
+          "ts_ms": 1793129014705,
+          "sending_ts_ms": 1793129014709
+        },
+        {
+          "seq": 34876,
+          "side": "yes",
+          "price": "0.1900",
+          "delta": "-1000.00",
+          "ts_ms": 1793129014709,
+          "sending_ts_ms": 1793129014714
+        }
+      ],
+      "following": [
+        {
+          "seq": 34880,
+          "side": "yes",
+          "price": "0.0910",
+          "delta": "-447.00",
+          "ts_ms": 1793129014715,
+          "sending_ts_ms": 1793129014722
+        },
+        {
+          "seq": 34881,
+          "side": "yes",
+          "price": "0.0910",
+          "delta": "-447.00",
+          "ts_ms": 1793129014716,
+          "sending_ts_ms": 1793129014722
+        },
+        {
+          "seq": 34882,
+          "side": "yes",
+          "price": "0.2000",
+          "delta": "1.00",
+          "ts_ms": 1793129014716,
+          "sending_ts_ms": 1793129014722
+        },
+        {
+          "seq": 34883,
+          "side": "yes",
+          "price": "0.0640",
+          "delta": "447.00",
+          "ts_ms": 1793129014721,
+          "sending_ts_ms": 1793129014731
+        },
+        {
+          "seq": 34884,
+          "side": "yes",
+          "price": "0.2000",
+          "delta": "-4.00",
+          "ts_ms": 1793129014724,
+          "sending_ts_ms": 1793129014731
+        },
+        {
+          "seq": 34885,
+          "side": "yes",
+          "price": "0.2000",
+          "delta": "-154.29",
+          "ts_ms": 1793129014726,
+          "sending_ts_ms": 1793129014731
+        },
+        {
+          "seq": 34886,
+          "side": "yes",
+          "price": "0.2000",
+          "delta": "-32.00",
+          "ts_ms": 1793129014726,
+          "sending_ts_ms": 1793129014731
+        },
+        {
+          "seq": 34887,
+          "side": "yes",
+          "price": "0.2000",
+          "delta": "-41.76",
+          "ts_ms": 1793129014726,
+          "sending_ts_ms": 1793129014731
+        },
+        {
+          "seq": 34888,
+          "side": "yes",
+          "price": "0.1400",
+          "delta": "-119.91",
+          "ts_ms": 1793129014727,
+          "sending_ts_ms": 1793129014731
+        },
+        {
+          "seq": 34889,
+          "side": "yes",
+          "price": "0.2000",
+          "delta": "119.91",
+          "ts_ms": 1793129014727,
+          "sending_ts_ms": 1793129014731
+        }
+      ],
+      "matches": [],
+      "differences": [
+        {
+          "side": "yes",
+          "price": "0.2000",
+          "offset": "-1000.00"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 47802,
+      "sending_ts_ms": 1793129045797,
+      "clock": null,
+      "preceding": [
+        {
+          "seq": 47778,
+          "side": "no",
+          "price": "0.7700",
+          "delta": "-200.00",
+          "ts_ms": 1793129045690,
+          "sending_ts_ms": 1793129045694
+        },
+        {
+          "seq": 47779,
+          "side": "yes",
+          "price": "0.0120",
+          "delta": "800.00",
+          "ts_ms": 1793129045696,
+          "sending_ts_ms": 1793129045703
+        },
+        {
+          "seq": 47780,
+          "side": "no",
+          "price": "0.7500",
+          "delta": "200.00",
+          "ts_ms": 1793129045701,
+          "sending_ts_ms": 1793129045706
+        },
+        {
+          "seq": 47781,
+          "side": "yes",
+          "price": "0.1700",
+          "delta": "1532.00",
+          "ts_ms": 1793129045714,
+          "sending_ts_ms": 1793129045719
+        },
+        {
+          "seq": 47782,
+          "side": "no",
+          "price": "0.8100",
+          "delta": "0.10",
+          "ts_ms": 1793129045731,
+          "sending_ts_ms": 1793129045735
+        },
+        {
+          "seq": 47785,
+          "side": "no",
+          "price": "0.8100",
+          "delta": "-24.90",
+          "ts_ms": 1793129045770,
+          "sending_ts_ms": 1793129045776
+        },
+        {
+          "seq": 47789,
+          "side": "no",
+          "price": "0.6900",
+          "delta": "-25.00",
+          "ts_ms": 1793129045782,
+          "sending_ts_ms": 1793129045786
+        },
+        {
+          "seq": 47790,
+          "side": "no",
+          "price": "0.7000",
+          "delta": "-25.00",
+          "ts_ms": 1793129045782,
+          "sending_ts_ms": 1793129045786
+        },
+        {
+          "seq": 47793,
+          "side": "no",
+          "price": "0.7100",
+          "delta": "-25.00",
+          "ts_ms": 1793129045783,
+          "sending_ts_ms": 1793129045787
+        },
+        {
+          "seq": 47794,
+          "side": "no",
+          "price": "0.7200",
+          "delta": "-25.00",
+          "ts_ms": 1793129045783,
+          "sending_ts_ms": 1793129045790
+        }
+      ],
+      "following": [
+        {
+          "seq": 47807,
+          "side": "yes",
+          "price": "0.1800",
+          "delta": "-118.65",
+          "ts_ms": 1793129045801,
+          "sending_ts_ms": 1793129045807
+        },
+        {
+          "seq": 47808,
+          "side": "yes",
+          "price": "0.1200",
+          "delta": "118.65",
+          "ts_ms": 1793129045801,
+          "sending_ts_ms": 1793129045807
+        },
+        {
+          "seq": 47809,
+          "side": "yes",
+          "price": "0.1700",
+          "delta": "500.00",
+          "ts_ms": 1793129045802,
+          "sending_ts_ms": 1793129045807
+        },
+        {
+          "seq": 47816,
+          "side": "yes",
+          "price": "0.1800",
+          "delta": "-10.93",
+          "ts_ms": 1793129045826,
+          "sending_ts_ms": 1793129045832
+        },
+        {
+          "seq": 47821,
+          "side": "no",
+          "price": "0.0100",
+          "delta": "10.11",
+          "ts_ms": 1793129045836,
+          "sending_ts_ms": 1793129045841
+        },
+        {
+          "seq": 47822,
+          "side": "yes",
+          "price": "0.1200",
+          "delta": "2000.00",
+          "ts_ms": 1793129045837,
+          "sending_ts_ms": 1793129045842
+        },
+        {
+          "seq": 47823,
+          "side": "no",
+          "price": "0.6900",
+          "delta": "25.00",
+          "ts_ms": 1793129045839,
+          "sending_ts_ms": 1793129045842
+        },
+        {
+          "seq": 47824,
+          "side": "no",
+          "price": "0.7000",
+          "delta": "25.00",
+          "ts_ms": 1793129045839,
+          "sending_ts_ms": 1793129045842
+        },
+        {
+          "seq": 47825,
+          "side": "no",
+          "price": "0.7100",
+          "delta": "25.00",
+          "ts_ms": 1793129045839,
+          "sending_ts_ms": 1793129045842
+        },
+        {
+          "seq": 47826,
+          "side": "no",
+          "price": "0.7200",
+          "delta": "25.00",
+          "ts_ms": 1793129045839,
+          "sending_ts_ms": 1793129045844
+        }
+      ],
+      "matches": [],
+      "differences": [
+        {
+          "side": "yes",
+          "price": "0.1400",
+          "offset": "-3.00"
+        },
+        {
+          "side": "no",
+          "price": "0.7600",
+          "offset": "-3.00"
+        },
+        {
+          "side": "no",
+          "price": "0.7300",
+          "offset": "-130.00"
+        },
+        {
+          "side": "yes",
+          "price": "0.1200",
+          "offset": "-130.00"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 75835,
+      "sending_ts_ms": 1793129102778,
+      "clock": null,
+      "preceding": [
+        {
+          "seq": 75823,
+          "side": "no",
+          "price": "0.8500",
+          "delta": "18.00",
+          "ts_ms": 1793129102748,
+          "sending_ts_ms": 1793129102755
+        },
+        {
+          "seq": 75824,
+          "side": "yes",
+          "price": "0.1100",
+          "delta": "500.00",
+          "ts_ms": 1793129102754,
+          "sending_ts_ms": 1793129102758
+        },
+        {
+          "seq": 75825,
+          "side": "yes",
+          "price": "0.0990",
+          "delta": "-8.00",
+          "ts_ms": 1793129102754,
+          "sending_ts_ms": 1793129102758
+        },
+        {
+          "seq": 75826,
+          "side": "yes",
+          "price": "0.1100",
+          "delta": "8.00",
+          "ts_ms": 1793129102754,
+          "sending_ts_ms": 1793129102758
+        },
+        {
+          "seq": 75828,
+          "side": "yes",
+          "price": "0.1100",
+          "delta": "-118.00",
+          "ts_ms": 1793129102757,
+          "sending_ts_ms": 1793129102763
+        },
+        {
+          "seq": 75829,
+          "side": "yes",
+          "price": "0.0550",
+          "delta": "118.00",
+          "ts_ms": 1793129102757,
+          "sending_ts_ms": 1793129102763
+        },
+        {
+          "seq": 75831,
+          "side": "no",
+          "price": "0.6500",
+          "delta": "200.00",
+          "ts_ms": 1793129102764,
+          "sending_ts_ms": 1793129102769
+        },
+        {
+          "seq": 75832,
+          "side": "no",
+          "price": "0.8800",
+          "delta": "-3.92",
+          "ts_ms": 1793129102767,
+          "sending_ts_ms": 1793129102774
+        },
+        {
+          "seq": 75833,
+          "side": "yes",
+          "price": "0.1100",
+          "delta": "-22.36",
+          "ts_ms": 1793129102767,
+          "sending_ts_ms": 1793129102774
+        },
+        {
+          "seq": 75834,
+          "side": "yes",
+          "price": "0.0770",
+          "delta": "-1250.00",
+          "ts_ms": 1793129102770,
+          "sending_ts_ms": 1793129102776
+        }
+      ],
+      "following": [
+        {
+          "seq": 75837,
+          "side": "yes",
+          "price": "0.0760",
+          "delta": "1250.00",
+          "ts_ms": 1793129102776,
+          "sending_ts_ms": 1793129102782
+        },
+        {
+          "seq": 75838,
+          "side": "no",
+          "price": "0.8800",
+          "delta": "-15.69",
+          "ts_ms": 1793129102779,
+          "sending_ts_ms": 1793129102784
+        },
+        {
+          "seq": 75839,
+          "side": "yes",
+          "price": "0.1000",
+          "delta": "150.00",
+          "ts_ms": 1793129102780,
+          "sending_ts_ms": 1793129102784
+        },
+        {
+          "seq": 75840,
+          "side": "yes",
+          "price": "0.1100",
+          "delta": "-8.00",
+          "ts_ms": 1793129102782,
+          "sending_ts_ms": 1793129102786
+        },
+        {
+          "seq": 75841,
+          "side": "yes",
+          "price": "0.1000",
+          "delta": "14.00",
+          "ts_ms": 1793129102782,
+          "sending_ts_ms": 1793129102786
+        },
+        {
+          "seq": 75842,
+          "side": "yes",
+          "price": "0.0960",
+          "delta": "-1.00",
+          "ts_ms": 1793129102801,
+          "sending_ts_ms": 1793129102807
+        },
+        {
+          "seq": 75843,
+          "side": "yes",
+          "price": "0.0980",
+          "delta": "-5.00",
+          "ts_ms": 1793129102802,
+          "sending_ts_ms": 1793129102807
+        },
+        {
+          "seq": 75844,
+          "side": "yes",
+          "price": "0.0970",
+          "delta": "-2.00",
+          "ts_ms": 1793129102802,
+          "sending_ts_ms": 1793129102807
+        },
+        {
+          "seq": 75845,
+          "side": "yes",
+          "price": "0.0970",
+          "delta": "5.00",
+          "ts_ms": 1793129102808,
+          "sending_ts_ms": 1793129102811
+        },
+        {
+          "seq": 75846,
+          "side": "yes",
+          "price": "0.0950",
+          "delta": "2.00",
+          "ts_ms": 1793129102808,
+          "sending_ts_ms": 1793129102813
+        }
+      ],
+      "matches": [],
+      "differences": [
+        {
+          "side": "yes",
+          "price": "0.1100",
+          "offset": "-17.61"
+        }
+      ]
+    },
+    {
+      "symbol": "KXBTC15M-26OCT271530-30",
+      "seq": 89061,
+      "sending_ts_ms": 1793129121754,
+      "clock": null,
+      "preceding": [
+        {
+          "seq": 89051,
+          "side": "yes",
+          "price": "0.1500",
+          "delta": "-722.00",
+          "ts_ms": 1793129121746,
+          "sending_ts_ms": 1793129121753
+        },
+        {
+          "seq": 89052,
+          "side": "yes",
+          "price": "0.1500",
+          "delta": "-0.10",
+          "ts_ms": 1793129121746,
+          "sending_ts_ms": 1793129121753
+        },
+        {
+          "seq": 89053,
+          "side": "yes",
+          "price": "0.1500",
+          "delta": "-19.00",
+          "ts_ms": 1793129121746,
+          "sending_ts_ms": 1793129121753
+        },
+        {
+          "seq": 89054,
+          "side": "yes",
+          "price": "0.1500",
+          "delta": "-177.00",
+          "ts_ms": 1793129121746,
+          "sending_ts_ms": 1793129121753
+        },
+        {
+          "seq": 89055,
+          "side": "yes",
+          "price": "0.1500",
+          "delta": "-1200.00",
+          "ts_ms": 1793129121746,
+          "sending_ts_ms": 1793129121753
+        },
+        {
+          "seq": 89056,
+          "side": "yes",
+          "price": "0.1500",
+          "delta": "-18.00",
+          "ts_ms": 1793129121746,
+          "sending_ts_ms": 1793129121753
+        },
+        {
+          "seq": 89057,
+          "side": "yes",
+          "price": "0.1500",
+          "delta": "-1.00",
+          "ts_ms": 1793129121746,
+          "sending_ts_ms": 1793129121753
+        },
+        {
+          "seq": 89058,
+          "side": "yes",
+          "price": "0.1500",
+          "delta": "-991.84",
+          "ts_ms": 1793129121746,
+          "sending_ts_ms": 1793129121753
+        },
+        {
+          "seq": 89059,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1000.00",
+          "ts_ms": 1793129121746,
+          "sending_ts_ms": 1793129121753
+        },
+        {
+          "seq": 89060,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1000.00",
+          "ts_ms": 1793129121747,
+          "sending_ts_ms": 1793129121753
+        }
+      ],
+      "following": [
+        {
+          "seq": 89063,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1000.00",
+          "ts_ms": 1793129121749,
+          "sending_ts_ms": 1793129121756
+        },
+        {
+          "seq": 89064,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1000.00",
+          "ts_ms": 1793129121750,
+          "sending_ts_ms": 1793129121756
+        },
+        {
+          "seq": 89065,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1520.00",
+          "ts_ms": 1793129121750,
+          "sending_ts_ms": 1793129121756
+        },
+        {
+          "seq": 89066,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1000.00",
+          "ts_ms": 1793129121750,
+          "sending_ts_ms": 1793129121756
+        },
+        {
+          "seq": 89067,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1000.00",
+          "ts_ms": 1793129121751,
+          "sending_ts_ms": 1793129121756
+        },
+        {
+          "seq": 89068,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1500.00",
+          "ts_ms": 1793129121751,
+          "sending_ts_ms": 1793129121756
+        },
+        {
+          "seq": 89069,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1500.00",
+          "ts_ms": 1793129121751,
+          "sending_ts_ms": 1793129121756
+        },
+        {
+          "seq": 89070,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1500.00",
+          "ts_ms": 1793129121751,
+          "sending_ts_ms": 1793129121756
+        },
+        {
+          "seq": 89071,
+          "side": "yes",
+          "price": "0.1500",
+          "delta": "-8.16",
+          "ts_ms": 1793129121751,
+          "sending_ts_ms": 1793129121756
+        },
+        {
+          "seq": 89072,
+          "side": "no",
+          "price": "0.8300",
+          "delta": "-250.00",
+          "ts_ms": 1793129121751,
+          "sending_ts_ms": 1793129121756
+        }
+      ],
+      "matches": [
+        {
+          "seq": 89067,
+          "side": "no",
+          "price": "0.8400",
+          "delta": "1000.00",
+          "ts_ms": 1793129121751,
+          "sending_ts_ms": 1793129121756,
+          "offset": "5520.00"
+        }
+      ],
+      "differences": [
+        {
+          "side": "yes",
+          "price": "0.1000",
+          "offset": "0.10"
+        },
+        {
+          "side": "yes",
+          "price": "0.0700",
+          "offset": "-0.10"
+        },
+        {
+          "side": "no",
+          "price": "0.8400",
+          "offset": "5520.00"
+        }
+      ]
+    }
+  ]
+}

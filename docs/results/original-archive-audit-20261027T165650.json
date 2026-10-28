@@ -1,0 +1,55 @@
+{
+  "archive": "/var/tmp/voluntas-challenge/data/reference-20261027T165650.sbe",
+  "kind": "verification_archive_audit",
+  "passed": false,
+  "report": {
+    "deltas": 145521,
+    "mismatches": [
+      {
+        "at": "2026-10-27T16:57:00.355351+00:00",
+        "clock": null,
+        "different_levels": 3,
+        "levels": [
+          {
+            "price": 76000,
+            "reconstructed_quantity": 73680000,
+            "side": 0,
+            "snapshot_quantity": 75680000
+          },
+          {
+            "price": 130000,
+            "reconstructed_quantity": 1830000000,
+            "side": 1,
+            "snapshot_quantity": 1832000000
+          },
+          {
+            "price": 160000,
+            "reconstructed_quantity": 1683000000,
+            "side": 1,
+            "snapshot_quantity": 1681000000
+          }
+        ],
+        "seq": null,
+        "symbol": "KXBTC15M-26OCT271300-00"
+      },
+      {
+        "at": "2026-10-27T16:57:25.355417+00:00",
+        "clock": null,
+        "different_levels": 1,
+        "levels": [
+          {
+            "price": 40000,
+            "reconstructed_quantity": 1234720000,
+            "side": 0,
+            "snapshot_quantity": 1242800000
+          }
+        ],
+        "seq": null,
+        "symbol": "KXBTC15M-26OCT271300-00"
+      }
+    ],
+    "records": 145557,
+    "snapshot_checks": 34,
+    "snapshot_mismatches": 2
+  }
+}

@@ -1,0 +1,140 @@
+[
+  {
+    "symbol": "KXBTC15M-26OCT271530-30",
+    "seq": 2839,
+    "sending_ts_ms": 1793128962701,
+    "differences": [
+      {
+        "side": "no",
+        "price": "0.0100",
+        "offset": "-2.73"
+      }
+    ],
+    "matches_earlier_complete_book": false,
+    "remaining_differences": 75
+  },
+  {
+    "symbol": "KXBTC15M-26OCT271530-30",
+    "seq": 11866,
+    "sending_ts_ms": 1793128974702,
+    "differences": [
+      {
+        "side": "yes",
+        "price": "0.1800",
+        "offset": "800.00"
+      },
+      {
+        "side": "yes",
+        "price": "0.1900",
+        "offset": "1.00"
+      },
+      {
+        "side": "yes",
+        "price": "0.2000",
+        "offset": "1.00"
+      },
+      {
+        "side": "yes",
+        "price": "0.1300",
+        "offset": "800.00"
+      }
+    ],
+    "matches_earlier_complete_book": false,
+    "remaining_differences": 105
+  },
+  {
+    "symbol": "KXETH15M-26OCT271530-30",
+    "seq": 11867,
+    "sending_ts_ms": 1793128974702,
+    "differences": [
+      {
+        "side": "yes",
+        "price": "0.3200",
+        "offset": "140.00"
+      }
+    ],
+    "matches_earlier_complete_book": false,
+    "remaining_differences": 53
+  },
+  {
+    "symbol": "KXBTC15M-26OCT271530-30",
+    "seq": 34877,
+    "sending_ts_ms": 1793129014716,
+    "differences": [
+      {
+        "side": "yes",
+        "price": "0.2000",
+        "offset": "-1000.00"
+      }
+    ],
+    "matches_earlier_complete_book": false,
+    "remaining_differences": 40
+  },
+  {
+    "symbol": "KXBTC15M-26OCT271530-30",
+    "seq": 47802,
+    "sending_ts_ms": 1793129045797,
+    "differences": [
+      {
+        "side": "yes",
+        "price": "0.1400",
+        "offset": "-3.00"
+      },
+      {
+        "side": "no",
+        "price": "0.7300",
+        "offset": "-130.00"
+      },
+      {
+        "side": "no",
+        "price": "0.7600",
+        "offset": "-3.00"
+      },
+      {
+        "side": "yes",
+        "price": "0.1200",
+        "offset": "-130.00"
+      }
+    ],
+    "matches_earlier_complete_book": false,
+    "remaining_differences": 46
+  },
+  {
+    "symbol": "KXBTC15M-26OCT271530-30",
+    "seq": 75835,
+    "sending_ts_ms": 1793129102778,
+    "differences": [
+      {
+        "side": "yes",
+        "price": "0.1100",
+        "offset": "-17.61"
+      }
+    ],
+    "matches_earlier_complete_book": false,
+    "remaining_differences": 69
+  },
+  {
+    "symbol": "KXBTC15M-26OCT271530-30",
+    "seq": 89061,
+    "sending_ts_ms": 1793129121754,
+    "differences": [
+      {
+        "side": "no",
+        "price": "0.8400",
+        "offset": "5520.00"
+      },
+      {
+        "side": "yes",
+        "price": "0.1000",
+        "offset": "0.10"
+      },
+      {
+        "side": "yes",
+        "price": "0.0700",
+        "offset": "-0.10"
+      }
+    ],
+    "matches_earlier_complete_book": false,
+    "remaining_differences": 99
+  }
+]

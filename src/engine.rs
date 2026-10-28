@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     time::{Duration, Instant},
 };
 
@@ -41,15 +41,70 @@ struct Replica {
     timestamp_ordinals: TimestampOrdinals,
 }
 
+// There are normally two replicas, at most eight by configuration. An inline
+// list avoids a separately allocated 11-slot B-tree node for every market.
+#[derive(Default)]
+struct Replicas(smallvec::SmallVec<[(Source, Replica); 2]>);
+impl Replicas {
+    fn get(&self, source: &Source) -> Option<&Replica> {
+        self.0.iter().find(|(s, _)| s == source).map(|(_, r)| r)
+    }
+    fn get_mut(&mut self, source: &Source) -> Option<&mut Replica> {
+        self.0.iter_mut().find(|(s, _)| s == source).map(|(_, r)| r)
+    }
+    fn contains_key(&self, source: &Source) -> bool {
+        self.get(source).is_some()
+    }
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+    fn insert(&mut self, source: Source, replica: Replica) {
+        if let Some(old) = self.get_mut(&source) {
+            *old = replica;
+        } else {
+            self.0.push((source, replica));
+        }
+    }
+    fn remove(&mut self, source: &Source) -> Option<Replica> {
+        let index = self.0.iter().position(|(s, _)| s == source)?;
+        Some(self.0.swap_remove(index).1)
+    }
+    fn iter(&self) -> impl Iterator<Item = (&Source, &Replica)> {
+        self.0.iter().map(|(s, r)| (s, r))
+    }
+    fn keys(&self) -> impl Iterator<Item = &Source> {
+        self.0.iter().map(|(s, _)| s)
+    }
+    fn values(&self) -> impl Iterator<Item = &Replica> {
+        self.0.iter().map(|(_, r)| r)
+    }
+}
+impl std::ops::Index<&Source> for Replicas {
+    type Output = Replica;
+    fn index(&self, source: &Source) -> &Replica {
+        self.get(source).expect("initialized replica")
+    }
+}
+
 #[derive(Default)]
 struct Market {
-    replicas: BTreeMap<Source, Replica>,
+    replicas: Replicas,
+    // A reconnect must not erase the evidence needed to detect maintenance resets.
+    retired_clocks: BTreeMap<Source, u64>,
     active: Option<Source>,
     floor: Option<Position>,
     lagging_since: Option<Instant>,
 }
 
 impl Market {
+    fn remove_replica(&mut self, source: Source) {
+        if let Some(replica) = self.replicas.remove(&source)
+            && let Some(position) = replica.position
+        {
+            self.retired_clocks.insert(source, position.clock);
+        }
+    }
+
     fn coverage(&self, replicas: usize) -> State {
         State {
             ready: self.active.is_some(),
@@ -69,13 +124,13 @@ impl Market {
 
 #[derive(Default)]
 pub struct Outcome {
-    pub records: Vec<Record>,
+    pub records: smallvec::SmallVec<[Record; 1]>,
     pub repairs: Vec<(Source, String)>,
     pub observation: Option<Observation>,
 }
 
 pub struct Engine {
-    markets: BTreeMap<String, Market>,
+    markets: HashMap<String, Market>,
     coverage: Index,
     replicas: usize,
     failover: Duration,
@@ -89,7 +144,7 @@ pub struct Engine {
 impl Engine {
     pub fn new(failover: Duration) -> Self {
         Self {
-            markets: BTreeMap::new(),
+            markets: HashMap::new(),
             coverage: Index::default(),
             replicas: 2,
             failover,
@@ -113,6 +168,10 @@ impl Engine {
     }
 
     pub fn set_symbols(&mut self, symbols: &BTreeSet<String>) {
+        if self.markets.is_empty() {
+            self.change_symbols(symbols, &BTreeSet::new());
+            return;
+        }
         let old: BTreeSet<_> = self.markets.keys().cloned().collect();
         self.change_symbols(
             &symbols.difference(&old).cloned().collect(),
@@ -131,9 +190,12 @@ impl Engine {
             }
             self.pending_lag.remove(symbol);
         }
+        self.markets.reserve(added.len());
         for symbol in added {
-            if !self.markets.contains_key(symbol) {
-                self.markets.insert(symbol.clone(), Market::default());
+            if let std::collections::hash_map::Entry::Vacant(entry) =
+                self.markets.entry(symbol.clone())
+            {
+                entry.insert(Market::default());
                 self.coverage.update(
                     symbol,
                     None,
@@ -180,6 +242,8 @@ impl Engine {
                 result.under_replicated.push(symbol.clone());
             }
         }
+        result.missing.sort_unstable();
+        result.under_replicated.sort_unstable();
         result
     }
 
@@ -192,6 +256,10 @@ impl Engine {
             timestamp,
             replica.exchange_at,
         )))
+    }
+
+    pub fn active_source(&self, symbol: &str) -> Option<Source> {
+        self.markets.get(symbol)?.active
     }
 
     /// Reserve planned refreshes by invalidating approved books before granting
@@ -238,18 +306,24 @@ impl Engine {
         };
         let before = market.coverage(self.replicas);
         let old_position = market.replicas.get(&source).and_then(|r| r.position);
-        if market.active == Some(source) {
-            market.lagging_since = None;
-            self.pending_lag.remove(&data.symbol);
-        }
+        let previous_clock = old_position
+            .map(|position| position.clock)
+            .or_else(|| market.retired_clocks.get(&source).copied());
         // Exchange maintenance can reset clocks. Discard *all* pre-maintenance books for this market.
-        if let (Some(old), Some(clock)) = (old_position, data.clock)
-            && clock < old.clock
+        if let (Some(old), Some(clock)) = (previous_clock, data.clock)
+            && clock < old
         {
             tracing::warn!(symbol = %data.symbol, source, "exchange clock regressed; rebuilding all replicas");
+            let sources: BTreeSet<_> = market
+                .replicas
+                .keys()
+                .chain(market.retired_clocks.keys())
+                .copied()
+                .chain(std::iter::once(source))
+                .collect();
             outcome
                 .repairs
-                .extend(market.replicas.keys().map(|&s| (s, data.symbol.clone())));
+                .extend(sources.into_iter().map(|s| (s, data.symbol.clone())));
             *market = Market::default();
             self.coverage.update(
                 &data.symbol,
@@ -263,6 +337,7 @@ impl Engine {
         let is_snapshot = matches!(data.change, Change::Snapshot(_));
         match data.change {
             Change::Snapshot(book) => {
+                market.retired_clocks.remove(&source);
                 market.replicas.insert(
                     source,
                     Replica {
@@ -303,14 +378,7 @@ impl Engine {
                         replica.received = now;
                         replica.exchange_at = data.exchange_at;
                         if market.active == Some(source) {
-                            delta_output = Some(PriceLevelUpdateDomain {
-                                backtest_timestamp: received_at,
-                                exchange_timestamp: data.exchange_at,
-                                price_level: price,
-                                quantity,
-                                side,
-                                symbol: data.symbol.clone(),
-                            });
+                            delta_output = Some((side, price, quantity));
                         }
                         let timing = if !self.capture_timing {
                             None
@@ -340,7 +408,7 @@ impl Engine {
                     }
                     Err(error) => {
                         tracing::warn!(source, symbol = %data.symbol, %error, "invalid replica; requesting fresh snapshot");
-                        market.replicas.remove(&source);
+                        market.remove_replica(source);
                         if market.active == Some(source) {
                             market.active = None;
                         }
@@ -349,23 +417,32 @@ impl Engine {
                 }
             }
         }
+        let mut emit_delta = None;
         let previous_active = market.active;
         // Start a grace period when a backup advances. A single update after a quiet
         // interval is not proof of a stalled primary: its duplicate may arrive milliseconds later.
-        if let Some(active) = market.active
-            && active != source
-        {
-            let candidate = market.replicas.get(&source);
-            if candidate.is_some_and(|r| {
-                caught_up(r.position, market.floor)
-                    && (r.position != market.floor
-                        || (r.position.is_none()
-                            && market.replicas.get(&active).is_some_and(|a| {
-                                r.exchange_at > a.exchange_at && (!is_snapshot || r.book != a.book)
-                            })))
-            }) {
-                market.lagging_since.get_or_insert(now);
-                self.pending_lag.insert(data.symbol.clone());
+        if let Some(active) = market.active {
+            let primary = &market.replicas[&active];
+            let backup_ahead = market.replicas.iter().any(|(&candidate, replica)| {
+                candidate != active
+                    && match (replica.position, primary.position) {
+                        (Some(backup), Some(primary)) => backup > primary,
+                        (None, None) => {
+                            replica.exchange_at > primary.exchange_at
+                                && ((candidate == source && !is_snapshot)
+                                    || replica.book != primary.book)
+                        }
+                        _ => false,
+                    }
+            });
+            if backup_ahead {
+                if market.lagging_since.is_none() {
+                    market.lagging_since = Some(now);
+                    self.pending_lag.insert(data.symbol.clone());
+                }
+            } else {
+                market.lagging_since = None;
+                self.pending_lag.remove(&data.symbol);
             }
         }
         if market.active.is_none() {
@@ -400,7 +477,7 @@ impl Engine {
                     market.active = None;
                 }
             } else if let Some(delta) = delta_output {
-                outcome.records.push(Record::Delta(delta));
+                emit_delta = Some(delta);
                 market.floor = replica.position;
                 self.deltas_emitted += 1;
             }
@@ -410,6 +487,16 @@ impl Engine {
             Some(before),
             Some(market.coverage(self.replicas)),
         );
+        if let Some((side, price_level, quantity)) = emit_delta {
+            outcome.records.push(Record::Delta(PriceLevelUpdateDomain {
+                backtest_timestamp: received_at,
+                exchange_timestamp: data.exchange_at,
+                side,
+                price_level,
+                quantity,
+                symbol: data.symbol,
+            }));
+        }
         outcome
     }
 
@@ -436,7 +523,7 @@ impl Engine {
                 continue;
             };
             let before = market.coverage(self.replicas);
-            market.replicas.remove(&source);
+            market.remove_replica(source);
             if market.active == Some(source) {
                 market.lagging_since = None;
                 self.pending_lag.remove(symbol);
@@ -554,6 +641,9 @@ fn best_source(market: &Market, now: Instant, freshness: Duration) -> Option<Sou
         .max_by_key(|(source, r)| {
             (
                 r.position,
+                // A delayed source can receive old events continuously. For a
+                // clockless feed, rank observed exchange time before arrival time.
+                r.position.is_none().then_some(r.exchange_at),
                 now.duration_since(r.received) < freshness,
                 r.received,
                 std::cmp::Reverse(**source),
@@ -730,6 +820,93 @@ mod tests {
         assert_eq!(e.ready_markets(), 0);
         assert!(e.ingest(1, delta(101, 1), t, n).records.is_empty());
         assert_eq!(e.ingest(0, snapshot(2), t, n).records.len(), 1);
+    }
+
+    #[test]
+    fn maintenance_reset_is_detected_after_both_sockets_disconnect() {
+        let mut e = engine();
+        let n = Instant::now();
+        let t = Utc::now();
+        e.ingest(0, snapshot(100), t, n);
+        e.ingest(1, snapshot(100), t, n);
+        e.invalidate(0, None, t, n);
+        e.invalidate(1, None, t, n);
+        let reset = e.ingest(0, snapshot(1), t, n);
+        assert_eq!(reset.repairs, [(0, "A".into()), (1, "A".into())]);
+        assert!(reset.records.is_empty());
+        assert_eq!(e.ready_markets(), 0);
+        assert_eq!(e.ingest(0, snapshot(2), t, n).records.len(), 1);
+        e.ingest(1, snapshot(2), t, n);
+        assert_eq!(e.coverage().caught_up_redundant, 1);
+        assert!(matches!(
+            &e.ingest(0, delta(3, 1), t, n).records[0],
+            Record::Delta(_)
+        ));
+    }
+
+    #[test]
+    fn lagged_reconnect_does_not_reset_an_advanced_primary() {
+        let mut e = engine();
+        let n = Instant::now();
+        let t = Utc::now();
+        e.ingest(0, snapshot(100), t, n);
+        e.ingest(1, snapshot(90), t, n);
+        e.invalidate(1, None, t, n);
+        let reconnect = e.ingest(1, snapshot(95), t, n);
+        assert!(reconnect.repairs.is_empty());
+        assert!(reconnect.records.is_empty());
+        assert_eq!(e.active_source("A"), Some(0));
+        assert_eq!(e.markets["A"].floor.unwrap().clock, 100);
+    }
+
+    #[test]
+    fn continuously_delayed_primary_fails_over_with_and_without_clocks() {
+        for clocked in [true, false] {
+            let mut e = engine();
+            let n = Instant::now();
+            let t = Utc::now();
+            let mut initial = snapshot(1);
+            initial.exchange_at = t;
+            if !clocked {
+                initial.clock = None;
+            }
+            e.ingest(0, initial.clone(), t, n);
+            e.ingest(1, initial, t, n);
+            let mut switched = false;
+            for i in 1..=5 {
+                let now = n + Duration::from_secs(i);
+                let mut backup = delta(i + 10, 2);
+                backup.exchange_at = t + chrono::Duration::seconds((i + 10) as i64);
+                let mut primary = delta(i + 1, 1);
+                primary.exchange_at = t + chrono::Duration::seconds((i + 1) as i64);
+                if !clocked {
+                    backup.clock = None;
+                    primary.clock = None;
+                }
+                e.ingest(1, backup, t, now);
+                e.ingest(0, primary, t, now + Duration::from_millis(100));
+                let records = e.check_lagging(t, now + Duration::from_millis(200));
+                switched |= records.iter().any(|r| matches!(r, Record::Snapshot(_)));
+                if switched {
+                    break;
+                }
+            }
+            assert!(switched, "clocked={clocked}");
+            assert_eq!(e.active_source("A"), Some(1));
+        }
+    }
+
+    #[test]
+    fn primary_catching_up_cancels_the_lag_timer() {
+        let mut e = engine();
+        let n = Instant::now();
+        let t = Utc::now();
+        e.ingest(0, snapshot(1), t, n);
+        e.ingest(1, snapshot(1), t, n);
+        e.ingest(1, delta(2, 1), t, n + Duration::from_secs(1));
+        e.ingest(0, delta(2, 1), t, n + Duration::from_secs(2));
+        assert!(e.check_lagging(t, n + Duration::from_secs(4)).is_empty());
+        assert_eq!(e.active_source("A"), Some(0));
     }
     #[test]
     fn lagging_primary_switches_to_advanced_backup_with_snapshot() {

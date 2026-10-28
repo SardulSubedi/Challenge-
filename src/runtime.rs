@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -119,6 +119,8 @@ pub async fn run(
     let mut shards = Shards::new(config.symbols_per_socket);
     let mut subscriptions = Vec::<watch::Sender<BTreeSet<String>>>::new();
     let mut repair_txs = Vec::<mpsc::UnboundedSender<String>>::new();
+    let mut snapshot_txs = Vec::<mpsc::Sender<Vec<String>>>::new();
+    let mut pending_snapshots = BTreeMap::<usize, BTreeSet<String>>::new();
     let mut workers = JoinSet::new();
     engine.set_symbols(&initial);
     shards.reconcile(&initial);
@@ -147,7 +149,9 @@ pub async fn run(
     let mut last_deltas = 0u64;
     let mut coverage_announced = false;
 
+    let mut to_write = Vec::with_capacity(32);
     loop {
+        to_write.clear();
         if needs_reconcile && !shutdown {
             if shards.assignments.len() * config.replicas > config.max_sockets {
                 fatal = Some(anyhow::anyhow!(
@@ -166,14 +170,17 @@ pub async fn run(
                     if source == subscriptions.len() {
                         let (desired_tx, desired_rx) = watch::channel(symbols.clone());
                         let (repair_tx, repairs) = mpsc::unbounded_channel();
+                        let (snapshot_tx, snapshots) = mpsc::channel(1);
                         subscriptions.push(desired_tx);
                         repair_txs.push(repair_tx);
+                        snapshot_txs.push(snapshot_tx);
                         let worker = Worker {
                             source,
                             config: config.clone(),
                             exchange: exchange.clone(),
                             desired: desired_rx,
                             repairs,
+                            snapshots,
                             events: events_tx.clone(),
                             cancel: cancel.clone(),
                             gate: gate.clone(),
@@ -219,7 +226,6 @@ pub async fn run(
         if shutdown && workers.is_empty() && events_rx.is_empty() {
             break;
         }
-        let mut to_write = Vec::new();
         let mut received = None;
         tokio::select! {
             _ = cancel.cancelled(), if !shutdown => {
@@ -250,8 +256,19 @@ pub async fn run(
             }
             Some(event) = events_rx.recv() => {
                 let now = Instant::now();
-                let timestamp = Utc::now();
                 match event {
+                    Event::Snapshot { source, symbols, received_at } => {
+                        // Drain already captured boundaries on shutdown, just like data.
+                        for symbol in symbols {
+                            // A source switch makes an old worker's boundary obsolete.
+                            // The existing retry deadline will request the new source.
+                            if engine.active_source(&symbol) == Some(source)
+                                && let Some(record) = engine.snapshot_for(&symbol, received_at)
+                            {
+                                to_write.push(Output::Record(record));
+                            }
+                        }
+                    }
                     Event::Rescan => { if !shutdown { rescan.notify_one(); } }
                     Event::Lifecycle(symbol) => {
                         if !shutdown && (config.symbols.is_empty() || config.symbols.contains(&symbol)) && hint_tx.try_send(symbol).is_err() {
@@ -266,7 +283,7 @@ pub async fn run(
                         let finishing_sample = config.run_secs.is_some_and(|secs| run_started.elapsed().as_secs() >= secs.saturating_sub(5));
                         if shutdown || cancel.is_cancelled() || finishing_sample { let _ = reply.send(BTreeSet::new()); }
                         else {
-                            let (approved, records) = engine.prepare_refresh(source, &symbols, all, timestamp, now);
+                            let (approved, records) = engine.prepare_refresh(source, &symbols, all, Utc::now(), now);
                             to_write.extend(records.into_iter().map(Output::Record));
                             let _ = reply.send(approved);
                         }
@@ -282,15 +299,27 @@ pub async fn run(
                         for (source, symbol) in repairs { if let Some(tx) = repair_txs.get(source) { let _ = tx.send(symbol); } }
                     }
                     Event::Invalid { source, symbols } => {
-                        if !cancel.is_cancelled() { to_write.extend(engine.invalidate(source, symbols.as_ref(), timestamp, now).into_iter().map(Output::Record)); }
+                        if !cancel.is_cancelled() { to_write.extend(engine.invalidate(source, symbols.as_ref(), Utc::now(), now).into_iter().map(Output::Record)); }
                     }
                 }
             }
             _ = snapshots.tick(), if !shutdown => {
                 for symbol in snapshot_schedule.take_due(Instant::now(), 32) {
-                    if let Some(record) = engine.snapshot_for(&symbol, Utc::now()) { to_write.push(Output::Record(record)); }
-                    else { snapshot_schedule.retry(&symbol, Instant::now()); }
+                    snapshot_schedule.retry(&symbol, Instant::now());
+                    if let Some(source) = engine.active_source(&symbol) {
+                        pending_snapshots.entry(source).or_default().insert(symbol);
+                    }
                 }
+                // Coalesce by symbol and retry full worker queues on the next tick.
+                // Dropping a batch here would add a whole retry period to its deadline.
+                pending_snapshots.retain(|&source, symbols| {
+                    if let Ok(permit) = snapshot_txs[source].try_reserve() {
+                        let batch: Vec<_> = (0..32).filter_map(|_| symbols.pop_first())
+                            .filter(|symbol| engine.active_source(symbol) == Some(source)).collect();
+                        if !batch.is_empty() { permit.send(batch); }
+                    }
+                    !symbols.is_empty()
+                });
             }
             _ = checkpoints.tick(), if !shutdown => {
                 to_write.push(Output::Checkpoint);
@@ -343,7 +372,7 @@ pub async fn run(
             }
         }
         if !writer_finished {
-            for item in to_write {
+            for item in to_write.drain(..) {
                 let item = if let Output::Record(record) = item {
                     let now = Instant::now();
                     if let Record::Snapshot(snapshot) = &record {

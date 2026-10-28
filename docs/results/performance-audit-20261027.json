@@ -1,0 +1,508 @@
+{
+  "kind": "performance_audit",
+  "machine": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "affinity": "CPU 2; nine timed repetitions per case, three process runs per variant, allocation pass timed separately",
+  "runs": [
+    {
+      "variant": "baseline",
+      "rows": [
+        {
+          "allocations_per_op": 0.0,
+          "case": "decimal",
+          "iterations": 100000,
+          "max_ns": 59.42226,
+          "median_ns": 54.41702,
+          "min_ns": 53.99686
+        },
+        {
+          "allocations_per_op": 19.0,
+          "case": "decode_delta",
+          "iterations": 100000,
+          "max_ns": 2263.54356,
+          "median_ns": 2214.82402,
+          "min_ns": 2181.45762
+        },
+        {
+          "allocations_per_op": 670.0,
+          "case": "decode_snapshot_200_levels",
+          "iterations": 2000,
+          "max_ns": 85266.5605,
+          "median_ns": 78225.5115,
+          "min_ns": 77597.3595
+        },
+        {
+          "allocations_per_op": 0.0,
+          "case": "book_update_128_levels",
+          "iterations": 100000,
+          "max_ns": 34.98426,
+          "median_ns": 34.15336,
+          "min_ns": 33.82135
+        },
+        {
+          "allocations_per_op": 2.0,
+          "case": "engine_encode_150k_universe",
+          "iterations": 100000,
+          "max_ns": 880.37871,
+          "median_ns": 643.55068,
+          "min_ns": 579.56791
+        },
+        {
+          "allocations_per_op": 20623.8,
+          "case": "output_handoff_20k_records",
+          "iterations": 10,
+          "max_ns": 7157279.1,
+          "median_ns": 7053541.2,
+          "min_ns": 6940888.6
+        },
+        {
+          "allocations_per_op": 24.692605633802817,
+          "case": "decode_real_wire",
+          "iterations": 85200,
+          "max_ns": 3442.333251173709,
+          "median_ns": 3196.9434624413148,
+          "min_ns": 3167.649941314554
+        },
+        {
+          "bytes": 230731,
+          "case": "wire_equivalence",
+          "fingerprint": "5d1448d047359054",
+          "frames": 2840,
+          "records": 2839
+        }
+      ]
+    },
+    {
+      "variant": "optimized",
+      "rows": [
+        {
+          "allocations_per_op": 0.0,
+          "case": "decimal",
+          "iterations": 100000,
+          "max_ns": 46.99613,
+          "median_ns": 39.37113,
+          "min_ns": 38.87668
+        },
+        {
+          "allocations_per_op": 1.0,
+          "case": "decode_delta",
+          "iterations": 100000,
+          "max_ns": 1076.32948,
+          "median_ns": 1030.94391,
+          "min_ns": 1019.31018
+        },
+        {
+          "allocations_per_op": 34.0,
+          "case": "decode_snapshot_200_levels",
+          "iterations": 2000,
+          "max_ns": 35748.587,
+          "median_ns": 35298.3775,
+          "min_ns": 35184.413
+        },
+        {
+          "allocations_per_op": 0.0,
+          "case": "book_update_128_levels",
+          "iterations": 100000,
+          "max_ns": 145.80646,
+          "median_ns": 21.11604,
+          "min_ns": 20.86307
+        },
+        {
+          "allocations_per_op": 1.0,
+          "case": "engine_encode_150k_universe",
+          "iterations": 100000,
+          "max_ns": 300.14993,
+          "median_ns": 285.64181,
+          "min_ns": 281.60223
+        },
+        {
+          "allocations_per_op": 20623.4,
+          "case": "output_handoff_20k_records",
+          "iterations": 10,
+          "max_ns": 7313966.0,
+          "median_ns": 7112092.0,
+          "min_ns": 7029835.7
+        },
+        {
+          "allocations_per_op": 1.1320422535211268,
+          "case": "decode_real_wire",
+          "iterations": 85200,
+          "max_ns": 1233.6775938967137,
+          "median_ns": 1200.9416901408451,
+          "min_ns": 1198.1980985915493
+        },
+        {
+          "bytes": 230731,
+          "case": "wire_equivalence",
+          "fingerprint": "5d1448d047359054",
+          "frames": 2840,
+          "records": 2839
+        }
+      ]
+    },
+    {
+      "variant": "optimized",
+      "rows": [
+        {
+          "allocations_per_op": 0.0,
+          "case": "decimal",
+          "iterations": 100000,
+          "max_ns": 38.62766,
+          "median_ns": 37.98504,
+          "min_ns": 37.43599
+        },
+        {
+          "allocations_per_op": 1.0,
+          "case": "decode_delta",
+          "iterations": 100000,
+          "max_ns": 1032.11105,
+          "median_ns": 1005.27336,
+          "min_ns": 990.00439
+        },
+        {
+          "allocations_per_op": 34.0,
+          "case": "decode_snapshot_200_levels",
+          "iterations": 2000,
+          "max_ns": 35172.2895,
+          "median_ns": 34468.0055,
+          "min_ns": 34261.7545
+        },
+        {
+          "allocations_per_op": 0.0,
+          "case": "book_update_128_levels",
+          "iterations": 100000,
+          "max_ns": 21.48756,
+          "median_ns": 20.31504,
+          "min_ns": 20.04484
+        },
+        {
+          "allocations_per_op": 1.0,
+          "case": "engine_encode_150k_universe",
+          "iterations": 100000,
+          "max_ns": 301.15337,
+          "median_ns": 293.4037,
+          "min_ns": 289.19111
+        },
+        {
+          "allocations_per_op": 20621.9,
+          "case": "output_handoff_20k_records",
+          "iterations": 10,
+          "max_ns": 7677988.9,
+          "median_ns": 7557878.5,
+          "min_ns": 7389096.5
+        },
+        {
+          "allocations_per_op": 1.1320422535211268,
+          "case": "decode_real_wire",
+          "iterations": 85200,
+          "max_ns": 1235.831220657277,
+          "median_ns": 1213.648838028169,
+          "min_ns": 1210.206455399061
+        },
+        {
+          "bytes": 230731,
+          "case": "wire_equivalence",
+          "fingerprint": "5d1448d047359054",
+          "frames": 2840,
+          "records": 2839
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "rows": [
+        {
+          "allocations_per_op": 0.0,
+          "case": "decimal",
+          "iterations": 100000,
+          "max_ns": 57.50717,
+          "median_ns": 55.20769,
+          "min_ns": 54.1585
+        },
+        {
+          "allocations_per_op": 19.0,
+          "case": "decode_delta",
+          "iterations": 100000,
+          "max_ns": 2517.86913,
+          "median_ns": 2274.37167,
+          "min_ns": 2247.75566
+        },
+        {
+          "allocations_per_op": 670.0,
+          "case": "decode_snapshot_200_levels",
+          "iterations": 2000,
+          "max_ns": 83907.2335,
+          "median_ns": 82095.0385,
+          "min_ns": 79795.985
+        },
+        {
+          "allocations_per_op": 0.0,
+          "case": "book_update_128_levels",
+          "iterations": 100000,
+          "max_ns": 38.01644,
+          "median_ns": 36.46139,
+          "min_ns": 35.73443
+        },
+        {
+          "allocations_per_op": 2.0,
+          "case": "engine_encode_150k_universe",
+          "iterations": 100000,
+          "max_ns": 740.58557,
+          "median_ns": 611.35459,
+          "min_ns": 573.29416
+        },
+        {
+          "allocations_per_op": 20622.9,
+          "case": "output_handoff_20k_records",
+          "iterations": 10,
+          "max_ns": 8453800.2,
+          "median_ns": 8134559.0,
+          "min_ns": 7931760.4
+        },
+        {
+          "allocations_per_op": 24.692605633802817,
+          "case": "decode_real_wire",
+          "iterations": 85200,
+          "max_ns": 3425.1357511737087,
+          "median_ns": 3197.021384976526,
+          "min_ns": 3179.7300821596245
+        },
+        {
+          "bytes": 230731,
+          "case": "wire_equivalence",
+          "fingerprint": "5d1448d047359054",
+          "frames": 2840,
+          "records": 2839
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "rows": [
+        {
+          "allocations_per_op": 0.0,
+          "case": "decimal",
+          "iterations": 100000,
+          "max_ns": 56.03195,
+          "median_ns": 53.69261,
+          "min_ns": 53.36428
+        },
+        {
+          "allocations_per_op": 19.0,
+          "case": "decode_delta",
+          "iterations": 100000,
+          "max_ns": 2323.07433,
+          "median_ns": 2205.34904,
+          "min_ns": 2190.57866
+        },
+        {
+          "allocations_per_op": 670.0,
+          "case": "decode_snapshot_200_levels",
+          "iterations": 2000,
+          "max_ns": 88942.8205,
+          "median_ns": 81222.9055,
+          "min_ns": 78513.151
+        },
+        {
+          "allocations_per_op": 0.0,
+          "case": "book_update_128_levels",
+          "iterations": 100000,
+          "max_ns": 42.4929,
+          "median_ns": 37.70466,
+          "min_ns": 35.47702
+        },
+        {
+          "allocations_per_op": 2.0,
+          "case": "engine_encode_150k_universe",
+          "iterations": 100000,
+          "max_ns": 1031.58791,
+          "median_ns": 711.97669,
+          "min_ns": 592.40782
+        },
+        {
+          "allocations_per_op": 20623.9,
+          "case": "output_handoff_20k_records",
+          "iterations": 10,
+          "max_ns": 7648164.9,
+          "median_ns": 7305582.3,
+          "min_ns": 7218328.7
+        },
+        {
+          "allocations_per_op": 24.692605633802817,
+          "case": "decode_real_wire",
+          "iterations": 85200,
+          "max_ns": 3372.5107394366196,
+          "median_ns": 3140.3185211267605,
+          "min_ns": 3096.034694835681
+        },
+        {
+          "bytes": 230731,
+          "case": "wire_equivalence",
+          "fingerprint": "5d1448d047359054",
+          "frames": 2840,
+          "records": 2839
+        }
+      ]
+    },
+    {
+      "variant": "optimized",
+      "rows": [
+        {
+          "allocations_per_op": 0.0,
+          "case": "decimal",
+          "iterations": 100000,
+          "max_ns": 41.65833,
+          "median_ns": 39.54287,
+          "min_ns": 38.45559
+        },
+        {
+          "allocations_per_op": 1.0,
+          "case": "decode_delta",
+          "iterations": 100000,
+          "max_ns": 1035.75526,
+          "median_ns": 1011.74036,
+          "min_ns": 982.04316
+        },
+        {
+          "allocations_per_op": 34.0,
+          "case": "decode_snapshot_200_levels",
+          "iterations": 2000,
+          "max_ns": 40394.088,
+          "median_ns": 34952.6455,
+          "min_ns": 34815.03
+        },
+        {
+          "allocations_per_op": 0.0,
+          "case": "book_update_128_levels",
+          "iterations": 100000,
+          "max_ns": 21.11514,
+          "median_ns": 20.82719,
+          "min_ns": 20.63553
+        },
+        {
+          "allocations_per_op": 1.0,
+          "case": "engine_encode_150k_universe",
+          "iterations": 100000,
+          "max_ns": 308.90328,
+          "median_ns": 302.3645,
+          "min_ns": 296.39432
+        },
+        {
+          "allocations_per_op": 20621.5,
+          "case": "output_handoff_20k_records",
+          "iterations": 10,
+          "max_ns": 8082030.4,
+          "median_ns": 7827900.5,
+          "min_ns": 7686033.5
+        },
+        {
+          "allocations_per_op": 1.1320422535211268,
+          "case": "decode_real_wire",
+          "iterations": 85200,
+          "max_ns": 1290.136220657277,
+          "median_ns": 1243.7302582159625,
+          "min_ns": 1237.279589201878
+        },
+        {
+          "bytes": 230731,
+          "case": "wire_equivalence",
+          "fingerprint": "5d1448d047359054",
+          "frames": 2840,
+          "records": 2839
+        }
+      ]
+    }
+  ],
+  "memory": [
+    {
+      "variant": "baseline",
+      "result": {
+        "case": "memory_150k_two_replicas_one_level",
+        "initialize_us": 1194499,
+        "ready": 150000,
+        "status": [
+          "VmHWM:\t  365904 kB",
+          "VmRSS:\t  365904 kB"
+        ]
+      }
+    },
+    {
+      "variant": "optimized",
+      "result": {
+        "case": "memory_150k_two_replicas_one_level",
+        "initialize_us": 637234,
+        "ready": 150000,
+        "status": [
+          "VmHWM:\t  198224 kB",
+          "VmRSS:\t  198224 kB"
+        ]
+      }
+    }
+  ],
+  "summary": [
+    {
+      "case": "decimal",
+      "baseline_median_ns": 54.41702,
+      "optimized_median_ns": 39.37113,
+      "time_reduction_percent": 27.649235478164734,
+      "baseline_allocations": 0.0,
+      "optimized_allocations": 0.0
+    },
+    {
+      "case": "decode_delta",
+      "baseline_median_ns": 2214.82402,
+      "optimized_median_ns": 1011.74036,
+      "time_reduction_percent": 54.319605040223465,
+      "baseline_allocations": 19.0,
+      "optimized_allocations": 1.0
+    },
+    {
+      "case": "decode_snapshot_200_levels",
+      "baseline_median_ns": 81222.9055,
+      "optimized_median_ns": 34952.6455,
+      "time_reduction_percent": 56.96700914005102,
+      "baseline_allocations": 670.0,
+      "optimized_allocations": 34.0
+    },
+    {
+      "case": "book_update_128_levels",
+      "baseline_median_ns": 36.46139,
+      "optimized_median_ns": 20.82719,
+      "time_reduction_percent": 42.87878218575869,
+      "baseline_allocations": 0.0,
+      "optimized_allocations": 0.0
+    },
+    {
+      "case": "engine_encode_150k_universe",
+      "baseline_median_ns": 643.55068,
+      "optimized_median_ns": 293.4037,
+      "time_reduction_percent": 54.40861005694222,
+      "baseline_allocations": 2.0,
+      "optimized_allocations": 1.0
+    },
+    {
+      "case": "output_handoff_20k_records",
+      "baseline_median_ns": 7305582.3,
+      "optimized_median_ns": 7557878.5,
+      "time_reduction_percent": -3.453471463869495,
+      "baseline_allocations": 20623.8,
+      "optimized_allocations": 20623.4
+    },
+    {
+      "case": "decode_real_wire",
+      "baseline_median_ns": 3196.9434624413148,
+      "optimized_median_ns": 1213.648838028169,
+      "time_reduction_percent": 62.03721297275061,
+      "baseline_allocations": 24.692605633802817,
+      "optimized_allocations": 1.1320422535211268
+    }
+  ],
+  "machine_cpu": "AMD Ryzen 9 5900HX, 16 logical CPUs, Ubuntu 24.04 on WSL2",
+  "baseline_source": "Pre-audit 9dc1f44 working tree including pending correctness investigation",
+  "baseline_manifest_isolation": "Distinct package identity, same explicit library name, autobins=false; baseline builds do not overwrite launch executables",
+  "binary_sha256": {
+    "baseline": "fd9850bbabb2fbfcadbc4cff08a6aa2da9a1223570c9f8927e7170b1bf2c0b2d",
+    "optimized": "4453974876aa1c54c5f82e45b4cfac466660abf6e0921950bcfb9ea4f5d10f29",
+    "collector": "e278eb5feeb152fe88c7beaf1bdd02d4cd6c6a55f7a16f715f103783ca99b641"
+  },
+  "fixture_sha256": "31d640b225a59befea28bec92763b36acc212a78a55a64b8b7dc5c3df7bd147d"
+}

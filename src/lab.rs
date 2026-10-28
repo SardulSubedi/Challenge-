@@ -3,6 +3,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io::{BufWriter, Write},
     path::Path,
     sync::Arc,
     time::{Duration, Instant},
@@ -92,6 +93,7 @@ impl ReferenceBook {
 #[derive(Default, Debug, Serialize)]
 pub struct VerifyReport {
     pub started_at: String,
+    pub wire_log: Option<String>,
     pub duration_ms: u64,
     pub connection: Option<transport::ConnectionInfo>,
     pub deltas: u64,
@@ -174,8 +176,21 @@ pub async fn verify(
             AlignedSbeWriter::create(path, CHUNK_SIZE)
         })
         .transpose()?;
+    let wire_path = archive_path.map(|path| path.with_extension("wire.jsonl"));
+    let mut wire = wire_path
+        .as_ref()
+        .map(|path| {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .with_context(|| format!("cannot create wire evidence {}", path.display()))
+                .map(|file| BufWriter::with_capacity(64 * 1024, file))
+        })
+        .transpose()?;
     let mut report = VerifyReport {
         started_at: Utc::now().to_rfc3339(),
+        wire_log: wire_path.as_ref().map(|path| path.display().to_string()),
         connection: Some(connection),
         ..Default::default()
     };
@@ -212,6 +227,12 @@ pub async fn verify(
                     let received_at = Utc::now();
                     match incoming.context("verification socket ended")?? {
                         Message::Text(text) => {
+                            // Persist input before decoding or sequence validation, including
+                            // the frame that causes a verification failure. No auth headers.
+                            if let Some(log) = &mut wire {
+                                serde_json::to_writer(&mut *log, &json!({"received_at": received_at.to_rfc3339(), "frame": text.as_str()}))?;
+                                log.write_all(b"\n")?;
+                            }
                             tracing::trace!(frame = text.as_str(), "verification exchange frame");
                             let frame = exchange.decode(text.as_str(), received_at)?;
                             sequences.check(frame.sid, frame.seq)?;
@@ -267,6 +288,9 @@ pub async fn verify(
         Ok(())
     }.await;
     let _ = timeout(Duration::from_secs(2), socket.close(None)).await;
+    if let Some(log) = &mut wire {
+        log.flush()?;
+    }
     if let Some(writer) = &mut archive {
         writer.flush()?;
     }
@@ -280,6 +304,65 @@ pub async fn verify(
             "SBE archive replay differs from independently reconstructed final books"
         );
         report.archive_roundtrip = true;
+    }
+    Ok(report)
+}
+
+#[derive(Default, Debug, Serialize)]
+pub struct ArchiveAudit {
+    pub records: u64,
+    pub deltas: u64,
+    pub snapshot_checks: u64,
+    pub snapshot_mismatches: u64,
+    pub mismatches: Vec<Mismatch>,
+}
+
+/// Audit a single-source verifier archive. Collector failover snapshots are
+/// deliberate resets, so this check must not be used to judge those boundaries.
+pub fn audit_archive(path: &Path) -> Result<ArchiveAudit> {
+    ensure!(
+        std::fs::metadata(path)?
+            .len()
+            .is_multiple_of(CHUNK_SIZE as u64),
+        "truncated archive"
+    );
+    let mut reader = AlignedSbeReader::<OrderbookSchema>::open(path)?;
+    let mut books = BTreeMap::<String, ReferenceBook>::new();
+    let mut report = ArchiveAudit::default();
+    while let Some(message) = reader.read_msg()? {
+        report.records += 1;
+        match message {
+            AnyMessage::Snapshot(decoded) => {
+                let snapshot = SnapshotDomain::try_from_decoder(decoded)?;
+                let actual = ReferenceBook::from_snapshot(&snapshot)?;
+                if let Some(expected) = books.get(&snapshot.symbol) {
+                    report.snapshot_checks += 1;
+                    if *expected != actual {
+                        report.snapshot_mismatches += 1;
+                        if report.mismatches.len() < 10 {
+                            report.mismatches.push(Mismatch {
+                                symbol: snapshot.symbol.clone(),
+                                different_levels: expected.differences(&actual),
+                                at: snapshot.received_at.to_rfc3339(),
+                                seq: None,
+                                clock: None,
+                                levels: level_differences(expected, &actual),
+                            });
+                        }
+                    }
+                }
+                books.insert(snapshot.symbol, actual);
+            }
+            AnyMessage::PriceLevelUpdate(decoded) => {
+                let update = PriceLevelUpdateDomain::try_from_decoder(decoded)?;
+                books
+                    .get_mut(&update.symbol)
+                    .context("SBE delta before snapshot")?
+                    .set(update.side, update.price_level, update.quantity)?;
+                report.deltas += 1;
+            }
+            _ => anyhow::bail!("unexpected SBE message"),
+        }
     }
     Ok(report)
 }

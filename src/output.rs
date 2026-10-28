@@ -145,7 +145,9 @@ impl Sink {
     /// A dedicated blocking thread owns output. Bounded queues propagate pressure; never silently drop data.
     pub fn run(mut self, mut rx: mpsc::Receiver<Output>) -> Result<()> {
         let stdout = std::io::stdout();
-        let mut stdout = BufWriter::with_capacity(64 * 1024, stdout.lock());
+        // Each record is flushed immediately. A second BufWriter would only
+        // copy the same bytes before forwarding them to stdout's own buffer.
+        let mut stdout = stdout.lock();
         let mut encoded = Vec::with_capacity(4096);
         let result: Result<()> = (|| {
             while let Some(item) = rx.blocking_recv() {
@@ -179,7 +181,9 @@ impl Sink {
                             stdout.flush()?;
                         }
                         if delta && let Some((received, _)) = timing {
-                            self.metrics.receive_to_sink.record(received.elapsed().as_micros().min(u64::MAX as u128) as u64);
+                            self.metrics.receive_to_sink.record(
+                                    received.elapsed().as_micros().min(u64::MAX as u128) as u64,
+                                );
                         }
                     }
                     Output::Coverage(status) => {

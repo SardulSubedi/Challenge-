@@ -19,38 +19,35 @@ pub fn fixed(value: &str) -> Result<i64> {
         None => (false, value),
     };
     let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
-    ensure!(
-        !whole.is_empty() && whole.bytes().all(|c| c.is_ascii_digit()),
-        "invalid decimal"
-    );
-    ensure!(
-        fraction.bytes().all(|c| c.is_ascii_digit()),
-        "invalid decimal fraction"
-    );
-    let significant = fraction.trim_end_matches('0');
-    ensure!(
-        significant.len() <= 6,
-        "decimal exceeds six-place schema precision"
-    );
-    let fractional = if significant.is_empty() {
-        0
-    } else {
-        significant.parse::<i128>()?
-    };
-    let magnitude = whole
-        .parse::<i128>()?
-        .checked_mul(i128::from(SCALE))
-        .and_then(|v| {
-            fractional
-                .checked_mul(10i128.pow(6 - significant.len() as u32))
-                .and_then(|f| v.checked_add(f))
-        })
+    ensure!(!whole.is_empty(), "invalid decimal");
+    let mut integral = 0u64;
+    for c in whole.bytes() {
+        ensure!(c.is_ascii_digit(), "invalid decimal");
+        integral = integral
+            .checked_mul(10)
+            .and_then(|v| v.checked_add(u64::from(c - b'0')))
+            .ok_or_else(|| anyhow::anyhow!("decimal overflow"))?;
+    }
+    let mut fractional = 0u64;
+    for (i, c) in fraction.bytes().enumerate() {
+        ensure!(c.is_ascii_digit(), "invalid decimal fraction");
+        if i < 6 {
+            fractional = fractional * 10 + u64::from(c - b'0');
+        } else {
+            ensure!(c == b'0', "decimal exceeds six-place schema precision");
+        }
+    }
+    const POW10: [u64; 7] = [1, 10, 100, 1000, 10000, 100000, 1000000];
+    fractional *= POW10[6 - fraction.len().min(6)];
+    let magnitude = integral
+        .checked_mul(SCALE as u64)
+        .and_then(|v| v.checked_add(fractional))
         .ok_or_else(|| anyhow::anyhow!("decimal overflow"))?;
-    Ok(i64::try_from(if negative {
-        -magnitude
-    } else {
-        magnitude
-    })?)
+    if negative && magnitude == (1u64 << 63) {
+        return Ok(i64::MIN);
+    }
+    let magnitude = i64::try_from(magnitude)?;
+    Ok(if negative { -magnitude } else { magnitude })
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -62,17 +59,20 @@ pub struct Book {
 impl Book {
     pub fn from_levels(bids: Vec<(i64, i64)>, asks: Vec<(i64, i64)>) -> Result<Self> {
         let mut book = Self::default();
-        for (side, levels) in [(Side::Buy, bids), (Side::Sell, asks)] {
-            for (price, quantity) in levels {
+        for (side, mut levels) in [(Side::Buy, bids), (Side::Sell, asks)] {
+            for &(price, quantity) in &levels {
                 ensure!(quantity >= 0, "negative snapshot quantity");
                 ensure!((0..=SCALE).contains(&price), "price outside [0,1]");
-                if quantity > 0 {
-                    ensure!(
-                        book.levels_mut(side).insert(price, quantity).is_none(),
-                        "duplicate snapshot price"
-                    );
-                }
             }
+            levels.retain(|(_, quantity)| *quantity > 0);
+            levels.sort_unstable_by_key(|&(price, _)| price);
+            ensure!(
+                levels.windows(2).all(|pair| pair[0].0 != pair[1].0),
+                "duplicate snapshot price"
+            );
+            // Bulk construction fills compact tree nodes instead of repeatedly
+            // searching/splitting while inserting the initial snapshot.
+            *book.levels_mut(side) = levels.into_iter().collect();
         }
         Ok(book)
     }
@@ -88,21 +88,36 @@ impl Book {
     pub fn apply(&mut self, side: Side, price: i64, delta: i64) -> Result<i64> {
         ensure!((0..=SCALE).contains(&price), "price outside [0,1]");
         let levels = self.levels_mut(side);
-        let quantity = levels
-            .get(&price)
-            .copied()
-            .unwrap_or(0)
-            .checked_add(delta)
-            .ok_or_else(|| anyhow::anyhow!("quantity overflow"))?;
-        ensure!(
-            quantity >= 0,
-            "delta creates negative quantity; snapshot required"
-        );
-        if quantity == 0 {
-            levels.remove(&price);
-        } else {
-            levels.insert(price, quantity);
-        }
+        use std::collections::btree_map::Entry;
+        // One tree traversal, including deletion. Validate before mutating an entry.
+        let quantity = match levels.entry(price) {
+            Entry::Occupied(mut entry) => {
+                let quantity = entry
+                    .get()
+                    .checked_add(delta)
+                    .ok_or_else(|| anyhow::anyhow!("quantity overflow"))?;
+                ensure!(
+                    quantity >= 0,
+                    "delta creates negative quantity; snapshot required"
+                );
+                if quantity == 0 {
+                    entry.remove();
+                } else {
+                    *entry.get_mut() = quantity;
+                }
+                quantity
+            }
+            Entry::Vacant(entry) => {
+                ensure!(
+                    delta >= 0,
+                    "delta creates negative quantity; snapshot required"
+                );
+                if delta > 0 {
+                    entry.insert(delta);
+                }
+                delta
+            }
+        };
         Ok(quantity)
     }
 
@@ -148,6 +163,48 @@ mod tests {
         assert!(fixed("0.1234567").is_err());
         assert!(fixed("NaN").is_err());
         assert!(fixed("9223372036854775807").is_err());
+    }
+    #[test]
+    fn decimal_boundaries_match_independent_i128_scaling() {
+        assert_eq!(fixed("9223372036854.775807").unwrap(), i64::MAX);
+        assert_eq!(fixed("-9223372036854.775808").unwrap(), i64::MIN);
+        for bad in [
+            "9223372036854.775808",
+            "-9223372036854.775809",
+            "18446744073709551616",
+            "-",
+            ".1",
+            "1..0",
+            "1.0000001",
+            "+1",
+            "1e3",
+            " 1",
+        ] {
+            assert!(fixed(bad).is_err(), "{bad}");
+        }
+        for whole in [-9223372036854i128, -100, 0, 1, 9223372036854] {
+            for fraction in [0i128, 1, 10, 99999, 775807, 775808, 999999] {
+                let negative = whole < 0;
+                let text = format!(
+                    "{}{}.{fraction:06}000",
+                    if negative { "-" } else { "" },
+                    whole.abs()
+                );
+                let magnitude = whole.abs() * 1_000_000 + fraction;
+                let expected = i64::try_from(if negative { -magnitude } else { magnitude });
+                assert_eq!(fixed(&text).ok(), expected.ok(), "{text}");
+            }
+        }
+    }
+    #[test]
+    fn entry_update_failures_leave_existing_and_absent_levels_unchanged() {
+        let mut b = Book::from_levels(vec![(100, i64::MAX)], vec![]).unwrap();
+        let original = b.clone();
+        assert!(b.apply(Side::Buy, 100, 1).is_err());
+        assert!(b.apply(Side::Buy, 200, -1).is_err());
+        assert_eq!(b, original);
+        assert_eq!(b.apply(Side::Buy, 200, 0).unwrap(), 0);
+        assert_eq!(b, original);
     }
     #[test]
     fn updates_are_absolute_and_underflow_does_not_mutate() {

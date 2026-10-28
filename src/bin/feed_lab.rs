@@ -64,6 +64,11 @@ impl ConnectionArgs {
 
 #[derive(Subcommand)]
 enum Action {
+    /// Recover exact snapshot differences from a single-source verifier archive; no credentials required.
+    AuditArchive {
+        #[arg(long)]
+        archive: PathBuf,
+    },
     /// Reconstruct signed deltas independently; compare with fresh exchange snapshots and replay SBE.
     Verify {
         #[arg(long, value_delimiter = ',')]
@@ -126,6 +131,11 @@ async fn main() -> Result<()> {
         .transpose()?;
     let result: Result<(Value, bool)> = async {
         Ok(match cli.command {
+            Action::AuditArchive { archive } => {
+                let report = lab::audit_archive(&archive)?;
+                let passed = report.snapshot_checks > 0 && report.deltas > 0 && report.snapshot_mismatches == 0;
+                (json!({"kind":"verification_archive_audit","archive":archive,"passed":passed,"report":report}), passed)
+            }
             Action::Verify { symbols, seconds, snapshot_every, min_deltas, archive } => {
                 ensure!((1..=600).contains(&seconds) && snapshot_every > 0 && snapshot_every < seconds, "verify requires 1..=600 seconds and a shorter positive snapshot interval");
                 let count = symbols.len();

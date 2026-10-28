@@ -22,6 +22,7 @@ name = "feed-lab"
 path = "src/bin/feed_lab.rs"
 
 [dependencies]
+smallvec = "1"
 anyhow = "1"
 chrono = "0.4"
 crossbeam = "0.8.4"
@@ -36,7 +37,7 @@ futures-util = { version = "0.3", features = ["sink"] }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
 rsa = { version = "0.9", features = ["pem", "sha2"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 sha2 = "0.10"
 tokio = { version = "1", features = ["full", "test-util"] }
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
@@ -46,6 +47,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 url = "2"
 
 [dev-dependencies]
+flate2 = "1"
 axum = { version = "0.8", features = ["ws"] }
 
 [build-dependencies]
@@ -53,3 +55,11 @@ ergo-sbe = "=0.1.16"
 indexmap = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml_ng = "0.9"
+
+[[bench]]
+name = "hot_path"
+harness = false
+
+[[bench]]
+name = "pipeline"
+harness = false

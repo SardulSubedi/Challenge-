@@ -2,6 +2,8 @@
 
 Rust implementation of the [Voluntas engineering challenge](https://voluntas.io/engineering-challenge), built on the [required template](https://github.com/voluntas-io/engineering-challenge-template). The collector discovers every live regular Kalshi market, maintains redundant orderbooks, and emits standardized SBE snapshots and price-level updates.
 
+Measured optimizations reduce captured-frame decoding CPU time by about **62%** and initialized shallow-book test memory by **46%**. A full live run covered **151,653 currently discovered markets on both replicas**; see the [audit, methodology and limits](docs/PERFORMANCE_AUDIT.md).
+
 ## Run
 
 Use a current stable Rust toolchain. Copy `.env.example` to `.env`, supply your Kalshi API key ID and the path to its private-key PEM. RSA-PSS and Ed25519 keys are supported; use `--demo` only for a demo key. Keep keys outside Git. `.env`, `.secrets/`, key files, and captured data are ignored.
@@ -18,7 +20,9 @@ cargo run --release --bin collector -- --output data/session-02.sbe --no-stdout
 
 Do not open the default output in a text terminal or send it through a text-transforming pipeline. Logs go to stderr. Archive names must be new: existing files are never overwritten. Stop with Ctrl+C (SIGINT); SIGTERM is also handled on Unix. Sockets close, queued observations drain, and the archive's final chunk flushes before exit.
 
-On this Windows machine, a project-local Rust toolchain has been installed for Ubuntu-24.04 in WSL. The wrapper uses Linux temporary storage for build artifacts:
+On this Windows machine, the working checkout and project-local Rust toolchain are in Ubuntu-24.04 at `/home/sardul/projects/Challenge`. Build artifacts, dependencies, and live recordings also use the Linux filesystem. Open the source from Windows at `\\wsl.localhost\Ubuntu-24.04\home\sardul\projects\Challenge`. The previous Windows folder is a backup; its launchers forward to the Linux checkout through the local, ignored `work/native-wsl-root.txt` setting. Edit the Linux checkout to avoid diverging copies.
+
+From either the Linux checkout's Windows network path or the previous Windows folder:
 
 ```powershell
 .\scripts\cargo-wsl.ps1 test --all-targets --locked
@@ -66,7 +70,7 @@ The run timer starts after initial discovery. The allow-list uses the REST ticke
 
 The upstream YAML schema and generated DTOs are retained. `SnapshotDomain` and `PriceLevelUpdateDomain` are encoded with the template's `SbeEncode` helpers. Optional archives use its `AlignedSbeWriter` with 64 MiB chunks, readable by `AlignedSbeReader<OrderbookSchema>`. Stdout concatenates complete SBE messages without file padding. Prices and quantities are scaled by **1,000,000**; `Side::Buy` is bid, `Side::Sell` is ask.
 
-Receive time is captured immediately after reading a WebSocket frame, before JSON decoding or queueing. Delta `backtest_timestamp` is that local receive time; exchange time comes from the feed. Snapshot `received_at` is receive time for an incoming snapshot, or local emission time for a scheduled/failover snapshot. Such a snapshot's exchange timestamp is its last observed exchange update time. Missing exchange timestamps use Unix epoch (zero), never a fabricated local exchange time. Keep the host clock synchronized.
+Receive time is captured immediately after reading a WebSocket frame, before JSON decoding or queueing. Delta `backtest_timestamp` is that local receive time; exchange time comes from the feed. Snapshot `received_at` is receive time for an incoming snapshot, the active worker's serialized boundary time for a scheduled snapshot, or local emission time for a failover snapshot. Scheduled boundaries follow that worker's already captured frames and precede its next captures, preserving their timestamp order under queue pressure. Such a snapshot's exchange timestamp is its last observed exchange update time. Missing exchange timestamps use Unix epoch (zero), never a fabricated local exchange time. Keep the host clock synchronized.
 
 Archives queue bounded background writes at minute checkpoints and wait for completion at shutdown; slow writes can still cause backpressure. The required writer pads each partial chunk to 64 MiB, so a quiet archived run can use roughly 64 MiB per minute. A crash can lose the current buffered chunk; a process supervisor cannot recover historical updates the exchange does not replay. This is a collection challenge, not a durable production feed recorder. See [design and limitations](docs/DESIGN.md).
 
@@ -81,7 +85,7 @@ The latency report prefers `(market, exchange clock, ordinal, side, price, delta
 
 See [final implementation, live results, and unresolved evidence](docs/FINAL_VALIDATION.md) for the latest validation.
 
-For measured startup costs, the subscription-processing optimization, full-universe throughput, and remaining checkpoint pauses, see [performance validation](docs/PERFORMANCE.md).
+For measured startup costs, the subscription-processing optimization, full-universe throughput, and remaining checkpoint pauses, see [performance validation](docs/PERFORMANCE.md). The latest [performance audit](docs/PERFORMANCE_AUDIT.md) includes repeated CPU/allocation comparisons, full-pipeline load tests, and full-universe memory measurements.
 
 ```sh
 cargo fmt --all -- --check
@@ -89,7 +93,7 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --all-targets --locked
 ```
 
-The 57 automated tests (55 on Windows) cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify silent-primary failover through the complete pipeline, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
+The 69 automated tests (67 on Windows) cover connection-budget enforcement, shared rate-limit cooldowns, quiet-period duplicate handling, clockless timing, exact decimals, both signing algorithms, orderbook mutations, sequence gaps, redundancy, clock maintenance resets including reconnects, source-switch snapshots, discovery pagination, dynamic subscriptions, binary archive round trips, and Unix SIGINT with byte-for-byte stdout/archive comparison. Additional tests verify continuously delayed and silent primary failover, malformed snapshot rejection, scheduled snapshot ordering under backpressure, a different exchange wire protocol through the same collector, actual TCP source-port binding, maintenance transition detection, and independent reconstruction that detects deliberately incorrect exchange checkpoints. GitHub Actions runs formatting, Clippy, tests, and release builds on Linux and Windows (the Unix signal test is Unix-only).
 
 ## Independent live checks and optional experiments
 
@@ -111,6 +115,8 @@ cargo run --release --bin feed-lab -- maintenance --symbol LIVE_BTC \
 ```
 
 The verifier exits unsuccessfully on engine disagreement, sequence loss, reconstruction failure, snapshot mismatch, insufficient activity, or SBE replay disagreement. The maintenance experiment requires an explicit closed-to-open exchange-status transition; starting while already open or seeing HTTP errors cannot fabricate a reopening. A wait timeout produces an explicitly inconclusive report. Source-port experiments use at most eight paced connections, stop additional rounds after a failed sample, and report relative arrival times without asserting a causal port advantage. NAT can rewrite the bound local port. See [results and experiment limits](docs/LATENCY.md).
+
+Verification archives now have an automatically saved `.wire.jsonl` sidecar containing the original public messages before decoding. Use `python scripts/audit-wire.py data/verified-01.wire.jsonl` for an independent Decimal reconstruction, or `feed-lab audit-archive --archive data/verified-01.sbe` to recover exact snapshot differences from a single-source verification archive. The [snapshot consistency investigation](docs/SNAPSHOT_CONSISTENCY.md) includes a small real exchange fixture that reproduces a disagreement without credentials. Its audit is expected to fail; the five Python regression tests assert that inconsistent data remains detectable. CI runs them with `python -m unittest discover -s tests -p test_audit_wire.py`.
 
 `Dockerfile` provides a non-root Linux image. Mount the key read-only, pass its container path through `KALSHI_PRIVATE_KEY_PATH`, and configure the matching key ID. `docs/collector.service` is an example systemd supervisor; adjust its install paths and user before deploying. No orders or account mutations are performed by the collector.
 

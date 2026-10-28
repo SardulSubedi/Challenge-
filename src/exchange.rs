@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeSet, HashMap, HashSet},
     sync::{
         Arc,
@@ -11,7 +12,7 @@ use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Value, json, value::RawValue};
 use tokio_tungstenite::tungstenite::handshake::client::Request;
 
 use crate::{
@@ -269,125 +270,134 @@ impl Exchange for Kalshi {
         }.to_string())
     }
 
-    fn decode(&self, message: &str, received_at: DateTime<Utc>) -> Result<Frame> {
-        let v: Value = serde_json::from_str(message).context("invalid exchange JSON")?;
-        let msg = &v["msg"];
-        let sid = v["sid"].as_u64().or_else(|| msg["sid"].as_u64());
-        let payload = match v["type"].as_str().context("message has no type")? {
-            "error" => bail!(
-                "exchange command error code {}: {}",
-                msg["code"],
-                msg["msg"]
+    fn decode(&self, message: &str, _received_at: DateTime<Utc>) -> Result<Frame> {
+        // Parse market messages once. RawValue is confined to snapshot arrays;
+        // deltas borrow directly from the frame without scanning msg twice.
+        if let Ok(frame) = serde_json::from_str::<MarketFrame<'_>>(message)
+            && matches!(
+                frame.kind.as_ref(),
+                "orderbook_snapshot" | "orderbook_delta"
+            )
+        {
+            let mut sid = frame.sid;
+            let msg = frame.msg;
+            sid = sid.or(msg.sid);
+            ensure!(
+                sid.is_some() && frame.seq.is_some(),
+                "orderbook message lacks sid/seq"
+            );
+            report_clockless(msg.clock);
+            let exchange_at = if let Some(ms) = msg.ts_ms.or(frame.sending_ts_ms) {
+                DateTime::from_timestamp_millis(ms).context("invalid exchange timestamp")?
+            } else if let Some(ts) = msg.ts {
+                DateTime::parse_from_rfc3339(&ts.0)?.with_timezone(&Utc)
+            } else {
+                DateTime::UNIX_EPOCH
+            };
+            let change = if frame.kind == "orderbook_snapshot" {
+                Change::Snapshot(Book::from_levels(
+                    wire_levels(msg.yes_dollars_fp, msg.yes, false)?,
+                    wire_levels(msg.no_dollars_fp, msg.no, true)?,
+                )?)
+            } else {
+                let mut price = match msg.price_dollars {
+                    Some(p) => fixed(&p.0)?,
+                    None => msg
+                        .price
+                        .context("missing delta price")?
+                        .checked_mul(10000)
+                        .context("price overflow")?,
+                };
+                let side = match msg.side.as_ref().map(|s| s.0.as_ref()) {
+                    Some("yes") => Side::Buy,
+                    Some("no") => {
+                        price = SCALE.checked_sub(price).context("price overflow")?;
+                        Side::Sell
+                    }
+                    _ => bail!("invalid orderbook side"),
+                };
+                let delta = match msg.delta_fp {
+                    Some(q) => fixed(&q.0)?,
+                    None => msg
+                        .delta
+                        .context("missing delta quantity")?
+                        .checked_mul(SCALE)
+                        .context("quantity overflow")?,
+                };
+                ensure!((0..=SCALE).contains(&price), "price outside [0,1]");
+                Change::Delta { side, price, delta }
+            };
+            let payload = Payload::Market(MarketData {
+                symbol: msg.market_ticker.into_owned(),
+                exchange_at,
+                clock: msg.clock,
+                change,
+            });
+            return Ok(Frame {
+                id: frame.id,
+                sid,
+                seq: frame.seq,
+                payload,
+            });
+        }
+        let frame: WireFrame<'_> =
+            serde_json::from_str(message).context("invalid exchange JSON")?;
+        // Never treat a malformed financial message as an ignorable control frame.
+        ensure!(
+            !matches!(
+                frame.kind.as_ref(),
+                "orderbook_snapshot" | "orderbook_delta"
             ),
-            "subscribed" => Payload::Subscribed {
-                sid: sid.context("subscription ack has no sid")?,
-            },
-            "ok" => Payload::Ack,
-            "unsubscribed" => bail!("exchange unexpectedly ended subscription"),
-            "market_lifecycle_v2" => {
-                ensure!(
-                    sid.is_some() && v["seq"].as_u64().is_some(),
-                    "lifecycle message lacks sid/seq"
-                );
-                if matches!(
-                    msg["event_type"].as_str(),
-                    Some(
-                        "created"
-                            | "activated"
-                            | "deactivated"
-                            | "determined"
-                            | "settled"
-                            | "close_date_updated"
-                    )
-                ) {
-                    Payload::Lifecycle(
-                        msg["market_ticker"]
-                            .as_str()
-                            .context("lifecycle message lacks ticker")?
-                            .to_owned(),
-                    )
-                } else {
-                    Payload::Other
-                }
-            }
-            "orderbook_snapshot" | "orderbook_delta" => {
-                ensure!(
-                    sid.is_some() && v["seq"].as_u64().is_some(),
-                    "orderbook message lacks sid/seq"
-                );
-                let symbol = msg["market_ticker"]
-                    .as_str()
-                    .context("missing market ticker")?
-                    .to_owned();
-                if msg["clock"].as_u64().is_none() {
-                    static CLOCKLESS_REPORTED: std::sync::atomic::AtomicBool =
-                        std::sync::atomic::AtomicBool::new(false);
-                    if !CLOCKLESS_REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                        tracing::warn!(
-                            "feed omits exchange clock; source switches reset snapshots, and latency matches use timestamp fingerprints with weaker guarantees"
-                        );
+            "invalid market payload"
+        );
+        let mut sid = frame.sid;
+        let payload = {
+            let msg: Value = serde_json::from_str(frame.msg.get())?;
+            sid = sid.or_else(|| msg["sid"].as_u64());
+            match frame.kind.as_ref() {
+                "error" => bail!(
+                    "exchange command error code {}: {}",
+                    msg["code"],
+                    msg["msg"]
+                ),
+                "subscribed" => Payload::Subscribed {
+                    sid: sid.context("subscription ack has no sid")?,
+                },
+                "ok" => Payload::Ack,
+                "unsubscribed" => bail!("exchange unexpectedly ended subscription"),
+                "market_lifecycle_v2" => {
+                    ensure!(
+                        sid.is_some() && frame.seq.is_some(),
+                        "lifecycle message lacks sid/seq"
+                    );
+                    if matches!(
+                        msg["event_type"].as_str(),
+                        Some(
+                            "created"
+                                | "activated"
+                                | "deactivated"
+                                | "determined"
+                                | "settled"
+                                | "close_date_updated"
+                        )
+                    ) {
+                        Payload::Lifecycle(
+                            msg["market_ticker"]
+                                .as_str()
+                                .context("lifecycle message lacks ticker")?
+                                .to_owned(),
+                        )
+                    } else {
+                        Payload::Other
                     }
                 }
-                let exchange_at = if let Some(ms) = msg["ts_ms"]
-                    .as_i64()
-                    .or_else(|| v["sending_ts_ms"].as_i64())
-                {
-                    DateTime::from_timestamp_millis(ms).context("invalid exchange timestamp")?
-                } else if let Some(ts) = msg["ts"].as_str() {
-                    DateTime::parse_from_rfc3339(ts)?.with_timezone(&Utc)
-                } else {
-                    // The schema has no nullable timestamp. Zero explicitly means unknown.
-                    DateTime::UNIX_EPOCH
-                };
-                let change = if v["type"] == "orderbook_snapshot" {
-                    let bids = levels(msg, "yes_dollars_fp", "yes", false)?;
-                    let asks = levels(msg, "no_dollars_fp", "no", true)?;
-                    Change::Snapshot(Book::from_levels(bids, asks)?)
-                } else {
-                    let mut price = match msg.get("price_dollars") {
-                        Some(p) => fixed(
-                            p.as_str()
-                                .context("price_dollars must be a decimal string")?,
-                        )?,
-                        None => msg["price"]
-                            .as_i64()
-                            .context("missing delta price")?
-                            .checked_mul(10000)
-                            .context("price overflow")?,
-                    };
-                    let side = match msg["side"].as_str() {
-                        Some("yes") => Side::Buy,
-                        Some("no") => {
-                            price = SCALE.checked_sub(price).context("price overflow")?;
-                            Side::Sell
-                        }
-                        _ => bail!("invalid orderbook side"),
-                    };
-                    let delta = match msg.get("delta_fp") {
-                        Some(q) => fixed(q.as_str().context("delta_fp must be a decimal string")?)?,
-                        None => msg["delta"]
-                            .as_i64()
-                            .context("missing delta quantity")?
-                            .checked_mul(SCALE)
-                            .context("quantity overflow")?,
-                    };
-                    ensure!((0..=SCALE).contains(&price), "price outside [0,1]");
-                    Change::Delta { side, price, delta }
-                };
-                let _ = received_at; // Receive time is carried by the transport, never substituted for exchange time.
-                Payload::Market(MarketData {
-                    symbol,
-                    exchange_at,
-                    clock: msg["clock"].as_u64(),
-                    change,
-                })
+                _ => Payload::Other,
             }
-            _ => Payload::Other,
         };
         Ok(Frame {
-            id: v["id"].as_u64(),
+            id: frame.id,
             sid,
-            seq: v["seq"].as_u64(),
+            seq: frame.seq,
             payload,
         })
     }
@@ -405,59 +415,129 @@ impl Market {
     }
 }
 
-fn levels(msg: &Value, current: &str, legacy: &str, complement: bool) -> Result<Vec<(i64, i64)>> {
-    let modern = msg.get(current).filter(|v| !v.is_null());
-    let value = modern.or_else(|| msg.get(legacy).filter(|v| !v.is_null()));
-    let Some(value) = value else {
-        return Ok(Vec::new());
-    };
-    value
-        .as_array()
-        .context("snapshot levels must be arrays")?
-        .iter()
-        .map(|level| {
-            let pair = level.as_array().context("invalid snapshot level")?;
-            ensure!(
-                pair.len() == 2,
-                "snapshot level must contain price and quantity"
+// A wrapper lets serde borrow Cow strings even inside Option/tuple containers.
+// Escaped JSON strings still use serde's validated owned fallback.
+#[derive(Deserialize)]
+struct WireText<'a>(#[serde(borrow)] Cow<'a, str>);
+
+// Borrow strings and raw level arrays from the incoming frame. Only the ticker
+// must outlive decoding; numeric fields never allocate a general-purpose JSON tree.
+#[derive(Deserialize)]
+struct MarketFrame<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: Cow<'a, str>,
+    id: Option<u64>,
+    sid: Option<u64>,
+    seq: Option<u64>,
+    sending_ts_ms: Option<i64>,
+    #[serde(borrow)]
+    msg: WireMarket<'a>,
+}
+
+#[derive(Deserialize)]
+struct WireFrame<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: Cow<'a, str>,
+    id: Option<u64>,
+    sid: Option<u64>,
+    seq: Option<u64>,
+    #[serde(borrow, default = "null_message")]
+    msg: &'a RawValue,
+}
+fn null_message() -> &'static RawValue {
+    RawValue::NULL
+}
+
+#[derive(Deserialize)]
+struct WireMarket<'a> {
+    sid: Option<u64>,
+    #[serde(borrow)]
+    market_ticker: Cow<'a, str>,
+    clock: Option<u64>,
+    ts_ms: Option<i64>,
+    #[serde(borrow)]
+    ts: Option<WireText<'a>>,
+    #[serde(borrow)]
+    side: Option<WireText<'a>>,
+    #[serde(borrow, default, deserialize_with = "present_text")]
+    price_dollars: Option<WireText<'a>>,
+    #[serde(borrow, default, deserialize_with = "present_text")]
+    delta_fp: Option<WireText<'a>>,
+    price: Option<i64>,
+    delta: Option<i64>,
+    // Preserve explicit null for the legacy fallback; omitted sides are empty.
+    #[serde(borrow, default, deserialize_with = "present_raw")]
+    yes_dollars_fp: Option<&'a RawValue>,
+    #[serde(borrow, default, deserialize_with = "present_raw")]
+    no_dollars_fp: Option<&'a RawValue>,
+    #[serde(borrow, default, deserialize_with = "present_raw")]
+    yes: Option<&'a RawValue>,
+    #[serde(borrow, default, deserialize_with = "present_raw")]
+    no: Option<&'a RawValue>,
+}
+fn present_text<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<WireText<'de>>, D::Error> {
+    WireText::deserialize(deserializer).map(Some)
+}
+fn present_raw<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<&'de RawValue>, D::Error> {
+    <&RawValue>::deserialize(deserializer).map(Some)
+}
+fn report_clockless(clock: Option<u64>) {
+    if clock.is_none() {
+        static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !REPORTED.load(Ordering::Relaxed) && !REPORTED.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                "feed omits exchange clock; source switches reset snapshots, and latency matches use timestamp fingerprints with weaker guarantees"
             );
-            let (price, quantity) = if modern.is_some() {
-                (
-                    fixed(
-                        pair[0]
-                            .as_str()
-                            .context("snapshot price must be a string")?,
-                    )?,
-                    fixed(
-                        pair[1]
-                            .as_str()
-                            .context("snapshot quantity must be a string")?,
-                    )?,
-                )
-            } else {
-                (
-                    pair[0]
-                        .as_i64()
-                        .context("invalid legacy price")?
-                        .checked_mul(10000)
-                        .context("price overflow")?,
-                    pair[1]
-                        .as_i64()
-                        .context("invalid legacy quantity")?
-                        .checked_mul(SCALE)
-                        .context("quantity overflow")?,
-                )
-            };
-            Ok((
-                if complement {
-                    SCALE.checked_sub(price).context("price overflow")?
-                } else {
-                    price
-                },
-                quantity,
-            ))
-        })
-        .collect()
+        }
+    }
+}
+fn wire_levels(
+    modern: Option<&RawValue>,
+    legacy: Option<&RawValue>,
+    complement: bool,
+) -> Result<Vec<(i64, i64)>> {
+    // Kalshi explicitly omits a side when it has no offers. Absence means
+    // an empty side in a complete snapshot, not a broken subscription.
+    if let Some(value) = modern.filter(|v| v.get() != "null") {
+        // Tuple deserialization also rejects missing/extra elements.
+        let pairs: Vec<(WireText<'_>, WireText<'_>)> = serde_json::from_str(value.get())?;
+        pairs
+            .into_iter()
+            .map(|(p, q)| {
+                let price = fixed(&p.0)?;
+                Ok((
+                    if complement {
+                        SCALE.checked_sub(price).context("price overflow")?
+                    } else {
+                        price
+                    },
+                    fixed(&q.0)?,
+                ))
+            })
+            .collect()
+    } else if let Some(value) = legacy.filter(|v| v.get() != "null") {
+        let pairs: Vec<(i64, i64)> = serde_json::from_str(value.get())?;
+        pairs
+            .into_iter()
+            .map(|(p, q)| {
+                let price = p.checked_mul(10000).context("price overflow")?;
+                Ok((
+                    if complement {
+                        SCALE.checked_sub(price).context("price overflow")?
+                    } else {
+                        price
+                    },
+                    q.checked_mul(SCALE).context("quantity overflow")?,
+                ))
+            })
+            .collect()
+    } else {
+        Ok(Vec::new())
+    }
 }
 
 /// Sequence numbers belong to subscriptions, never to individual markets.
@@ -535,5 +615,80 @@ mod tests {
     #[test]
     fn malformed_financial_message_is_not_ignored() {
         assert!(adapter().decode(r#"{"type":"orderbook_delta","sid":1,"seq":3,"msg":{"market_ticker":"A","side":"yes","price_dollars":"0.3","delta_fp":"bad"}}"#, Utc::now()).is_err());
+    }
+
+    #[test]
+    fn borrowed_decoder_preserves_escapes_fallbacks_and_rejects_invalid_modern_fields() {
+        let frame = adapter().decode(r#"{"type":"orderbook_delta","seq":1,"msg":{"sid":3,"market_ticker":"A\u002dB","side":"y\u0065s","price_dollars":"0.\u0034","delta_fp":"1.00","ts":"2026-10-27T00:00:00Z"}}"#, Utc::now()).unwrap();
+        assert_eq!(frame.sid, Some(3));
+        let Payload::Market(data) = frame.payload else {
+            panic!()
+        };
+        assert_eq!(data.symbol, "A-B");
+        assert!(matches!(
+            data.change,
+            Change::Delta {
+                side: Side::Buy,
+                price: 400000,
+                delta: 1000000
+            }
+        ));
+        assert_eq!(data.exchange_at.timestamp(), 1793059200);
+        for field in ["price_dollars", "delta_fp"] {
+            for value in [json!(null), json!(0.5), json!(true), json!("NaN")] {
+                let mut msg = json!({"market_ticker":"A","side":"yes","price":40,"delta":1,"price_dollars":"0.4","delta_fp":"1.00"});
+                msg[field] = value;
+                assert!(
+                    adapter()
+                        .decode(
+                            &json!({"type":"orderbook_delta","sid":1,"seq":1,"msg":msg})
+                                .to_string(),
+                            Utc::now()
+                        )
+                        .is_err()
+                );
+            }
+        }
+        for levels in [
+            json!([["0.4"]]),
+            json!([["0.4", "2", "extra"]]),
+            json!([["0.4", "2"], ["0.4", "3"]]),
+            json!([["0.4", "-1"]]),
+        ] {
+            assert!(adapter().decode(&json!({"type":"orderbook_snapshot","sid":1,"seq":1,"msg":{"market_ticker":"A","yes_dollars_fp":levels,"no_dollars_fp":[]}}).to_string(),Utc::now()).is_err());
+        }
+    }
+
+    #[test]
+    fn snapshots_accept_documented_omitted_empty_sides() {
+        for msg in [
+            json!({"market_ticker":"A"}),
+            json!({"market_ticker":"A","yes_dollars_fp":[]}),
+            json!({"market_ticker":"A","no":null}),
+            json!({"market_ticker":"A","yes_dollars_fp":[],"no_dollars_fp":[]}),
+            json!({"market_ticker":"A","yes":null,"no":null}),
+        ] {
+            let frame = json!({"type":"orderbook_snapshot","sid":1,"seq":1,"msg":msg});
+            let decoded = adapter().decode(&frame.to_string(), Utc::now()).unwrap();
+            assert!(
+                matches!(decoded.payload, Payload::Market(MarketData { change: Change::Snapshot(book), .. }) if book == Book::default())
+            );
+        }
+        let decoded = adapter()
+            .decode(
+                include_str!("../tests/fixtures/kalshi-omitted-empty-side.json"),
+                Utc::now(),
+            )
+            .unwrap();
+        let Payload::Market(MarketData {
+            change: Change::Snapshot(book),
+            ..
+        }) = decoded.payload
+        else {
+            panic!()
+        };
+        assert!(book.bids.is_empty());
+        assert_eq!(book.asks.len(), 10);
+        assert_eq!(book.asks[&10000], 5_436_080_000);
     }
 }

@@ -3,6 +3,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY sbe_schemas ./sbe_schemas
 COPY src ./src
+COPY benches ./benches
 RUN cargo build --release --locked --bins
 
 FROM debian:bookworm-slim

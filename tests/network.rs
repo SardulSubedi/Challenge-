@@ -50,6 +50,7 @@ struct MockState {
     stall_first: AtomicBool,
     omit_snapshot: Mutex<Option<String>>,
     omit_backup: AtomicBool,
+    omit_empty_side: AtomicBool,
     lifecycle: AtomicBool,
     started: Instant,
 }
@@ -67,6 +68,7 @@ impl MockState {
             stall_first: AtomicBool::new(false),
             omit_snapshot: Mutex::new(None),
             omit_backup: AtomicBool::new(false),
+            omit_empty_side: AtomicBool::new(false),
             lifecycle: AtomicBool::new(false),
             started: Instant::now(),
         })
@@ -119,7 +121,9 @@ async fn serve_socket(mut socket: WebSocket, state: Arc<MockState>) {
                                 clocks.insert(symbol.to_owned(), clock);
                                 seq += 1;
                                 let quantity = clock + u64::from(action == "get_snapshot" && state.corrupt_checkpoint.load(Ordering::SeqCst));
-                                socket.send(Message::Text(json!({"type":"orderbook_snapshot","sid":1,"seq":seq,"sending_ts_ms":chrono::Utc::now().timestamp_millis(),"msg":{"market_ticker":symbol,"clock":clock,"yes_dollars_fp":[["0.4000",quantity.to_string()]],"no_dollars_fp":[["0.5000","3.00"]]}}).to_string().into())).await?;
+                                let mut snapshot = json!({"type":"orderbook_snapshot","sid":1,"seq":seq,"sending_ts_ms":chrono::Utc::now().timestamp_millis(),"msg":{"market_ticker":symbol,"clock":clock,"yes_dollars_fp":[["0.4000",quantity.to_string()]],"no_dollars_fp":[["0.5000","3.00"]]}});
+                                if state.omit_empty_side.load(Ordering::SeqCst) { snapshot["msg"].as_object_mut().unwrap().remove("no_dollars_fp"); }
+                                socket.send(Message::Text(snapshot.to_string().into())).await?;
                             }
                         }
                         Some(Ok(Message::Ping(payload))) => socket.send(Message::Pong(payload)).await?,
@@ -225,6 +229,43 @@ fn config() -> Config {
 }
 
 #[tokio::test]
+async fn omitted_empty_snapshot_side_keeps_both_connections_streaming() {
+    let state = MockState::new(false);
+    state.omit_empty_side.store(true, Ordering::SeqCst);
+    let (address, server) = start_server(state.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("one-sided.sbe");
+    let mut config = config();
+    config.no_stdout = true;
+    config.output = Some(path.clone());
+    config.run_secs = Some(2);
+    config.connect_interval_ms = 5;
+    runtime::run(
+        config,
+        exchange(state.clone(), address),
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(state.connections.load(Ordering::SeqCst), 2);
+    let mut reader = AlignedSbeReader::<OrderbookSchema>::open(path).unwrap();
+    let mut snapshots = 0;
+    let mut deltas = 0;
+    while let Some(record) = reader.read_msg().unwrap() {
+        match record {
+            AnyMessage::Snapshot(s) => {
+                assert!(SnapshotDomain::try_from_decoder(s).unwrap().asks.is_empty());
+                snapshots += 1;
+            }
+            AnyMessage::PriceLevelUpdate(_) => deltas += 1,
+            _ => panic!("unexpected output"),
+        }
+    }
+    assert!(snapshots >= 1 && deltas > 10);
+    server.abort();
+}
+
+#[tokio::test]
 async fn connection_budget_is_explicit_instead_of_silently_skipping_markets() {
     let state = MockState::new(false);
     *state.universe.lock().unwrap() = ["A".into(), "B".into()].into();
@@ -284,6 +325,7 @@ async fn periodic_snapshot_batches_continue_for_each_available_market() {
     let mut config = config();
     config.symbols_per_socket = 2000;
     config.replicas = 1;
+    config.discovery_secs = 60;
     config.no_stdout = true;
     config.run_secs = Some(3);
     config.output = Some(path.clone());
@@ -292,13 +334,95 @@ async fn periodic_snapshot_batches_continue_for_each_available_market() {
         .unwrap();
     let mut reader = AlignedSbeReader::<OrderbookSchema>::open(path).unwrap();
     let mut counts = BTreeMap::new();
+    let mut timestamps = BTreeMap::new();
     while let Some(message) = reader.read_msg().unwrap() {
-        if let AnyMessage::Snapshot(decoded) = message {
-            let snapshot = SnapshotDomain::try_from_decoder(decoded).unwrap();
-            *counts.entry(snapshot.symbol).or_insert(0) += 1;
+        let (symbol, timestamp) = match message {
+            AnyMessage::Snapshot(decoded) => {
+                let snapshot = SnapshotDomain::try_from_decoder(decoded).unwrap();
+                *counts.entry(snapshot.symbol.clone()).or_insert(0) += 1;
+                (snapshot.symbol, snapshot.received_at)
+            }
+            AnyMessage::PriceLevelUpdate(decoded) => {
+                let update = PriceLevelUpdateDomain::try_from_decoder(decoded).unwrap();
+                (update.symbol, update.backtest_timestamp)
+            }
+            _ => panic!("unexpected record"),
+        };
+        if let Some(previous) = timestamps.insert(symbol, timestamp) {
+            assert!(timestamp >= previous, "snapshot overtook a captured delta");
         }
     }
-    assert!(counts["A"] >= 3 && counts["B"] >= 3);
+    assert!(
+        counts["A"] >= 3 && counts["B"] >= 3,
+        "snapshot counts: {counts:?}"
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn snapshot_boundary_follows_captured_frames_under_backpressure() {
+    let state = MockState::new(false);
+    let (address, server) = start_server(state.clone()).await;
+    let cancel = CancellationToken::new();
+    let (_desired_tx, desired) = watch::channel(["A".into()].into());
+    let (_repair_tx, repairs) = mpsc::unbounded_channel();
+    let (snapshot_tx, snapshots) = mpsc::channel(1);
+    let (events, mut rx) = mpsc::channel(1);
+    let worker = Worker {
+        source: 0,
+        config: Arc::new(config()),
+        exchange: exchange(state, address),
+        desired,
+        repairs,
+        snapshots,
+        events,
+        cancel: cancel.clone(),
+        gate: Arc::new(ConnectGate::default()),
+    };
+    let task = tokio::spawn(worker.run());
+    timeout(Duration::from_secs(5), async {
+        let mut last_received = loop {
+            if let Event::Data { received_at, .. } = rx.recv().await.unwrap() {
+                break received_at;
+            }
+        };
+        // Fill the one-slot event queue and leave another frame blocked in emit().
+        sleep(Duration::from_millis(200)).await;
+        snapshot_tx.send(vec!["A".into()]).await.unwrap();
+        let boundary = loop {
+            match rx.recv().await.unwrap() {
+                Event::Data { received_at, .. } => last_received = received_at,
+                Event::Snapshot {
+                    received_at,
+                    symbols,
+                    ..
+                } => {
+                    assert_eq!(symbols, ["A"]);
+                    assert!(received_at >= last_received);
+                    break received_at;
+                }
+                _ => {}
+            }
+        };
+        loop {
+            if let Event::Data { received_at, .. } = rx.recv().await.unwrap() {
+                assert!(
+                    received_at >= boundary,
+                    "captured frame followed a newer snapshot marker"
+                );
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    cancel.cancel();
+    drop(rx);
+    timeout(Duration::from_secs(4), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
     server.abort();
 }
 
@@ -448,6 +572,7 @@ async fn sequence_gap_invalidates_then_reconnects_with_new_snapshot() {
         exchange: exchange(state.clone(), address),
         desired,
         repairs,
+        snapshots: mpsc::channel(1).1,
         events,
         cancel: cancel.clone(),
         gate: Arc::new(ConnectGate::default()),
@@ -625,6 +750,7 @@ async fn explicit_repair_reconciles_after_ack_and_streaming_resumes() {
             exchange: exchange(state.clone(), address),
             desired,
             repairs,
+            snapshots: mpsc::channel(1).1,
             events,
             cancel: cancel.clone(),
             gate: Arc::new(ConnectGate::default()),
@@ -705,17 +831,25 @@ async fn startup_covers_each_shard_before_opening_backups() {
     let dir = tempfile::tempdir().unwrap();
     let mut config = config();
     config.connect_interval_ms = 80;
+    config.discovery_secs = 60;
     config.no_stdout = true;
     config.output = Some(dir.path().join("startup.sbe"));
+    let coverage = dir.path().join("startup.coverage.json");
+    config.coverage_report = Some(coverage.clone());
     let cancel = CancellationToken::new();
     let task = tokio::spawn(runtime::run(
         config,
         exchange(state.clone(), address),
         cancel.clone(),
     ));
-    timeout(Duration::from_secs(5), async {
+    timeout(Duration::from_secs(12), async {
         loop {
-            if state.commands.lock().unwrap().len() >= 6 {
+            // A server accepting six commands does not mean the engine has
+            // consumed all six snapshots. Wait for actual redundant coverage.
+            let status = std::fs::read(&coverage)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+            if status.is_some_and(|s| s["coverage"]["redundant"] == 3) {
                 break;
             }
             sleep(Duration::from_millis(10)).await;
@@ -839,6 +973,24 @@ async fn independent_live_verifier_matches_checkpoints_and_sbe_replay() {
     assert!(report.deltas > 2 && report.snapshot_checks >= 2);
     assert_eq!(report.snapshot_mismatches, 0);
     assert!(report.archive_roundtrip);
+    let wire = std::fs::read_to_string(archive.with_extension("wire.jsonl")).unwrap();
+    let frames: Vec<Value> = wire
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(
+        frames.len() as u64 >= report.deltas + report.initial_snapshots + report.snapshot_checks
+    );
+    for frame in frames {
+        assert!(frame["received_at"].is_string());
+        assert!(serde_json::from_str::<Value>(frame["frame"].as_str().unwrap()).is_ok());
+    }
+    assert_eq!(
+        engineering_challenge::lab::audit_archive(&archive)
+            .unwrap()
+            .snapshot_mismatches,
+        0
+    );
     server.abort();
 }
 
@@ -847,6 +999,8 @@ async fn independent_verifier_reports_incorrect_exchange_checkpoint() {
     let state = MockState::new(false);
     state.corrupt_checkpoint.store(true, Ordering::SeqCst);
     let (address, server) = start_server(state.clone()).await;
+    let dir = tempfile::tempdir().unwrap();
+    let archive = dir.path().join("inconsistent.sbe");
     let report = engineering_challenge::lab::verify(
         exchange(state, address),
         engineering_challenge::lab::VerifyOptions {
@@ -854,12 +1008,26 @@ async fn independent_verifier_reports_incorrect_exchange_checkpoint() {
             duration: Duration::from_millis(500),
             snapshot_every: Duration::from_millis(100),
         },
-        None,
+        Some(&archive),
     )
     .await
     .unwrap();
     assert!(report.snapshot_mismatches > 0);
     assert!(report.mismatches[0].different_levels > 0);
+    assert!(
+        archive
+            .with_extension("wire.jsonl")
+            .metadata()
+            .unwrap()
+            .len()
+            > 0
+    );
+    let audit = engineering_challenge::lab::audit_archive(&archive).unwrap();
+    assert_eq!(audit.snapshot_mismatches, report.snapshot_mismatches);
+    assert_eq!(
+        audit.mismatches[0].levels[0].snapshot_quantity,
+        report.mismatches[0].levels[0].snapshot_quantity
+    );
     server.abort();
 }
 
